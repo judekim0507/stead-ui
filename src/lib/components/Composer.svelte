@@ -1,0 +1,491 @@
+<script lang="ts">
+	import { tick, untrack, onMount } from 'svelte';
+	import { fly, scale, slide } from 'svelte/transition';
+	import { flip } from 'svelte/animate';
+	import { motionEase } from '$lib/motion';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import BorderBeam from './BorderBeam.svelte';
+	import PlusIcon from '@lucide/svelte/icons/plus';
+	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+	import SquareIcon from '@lucide/svelte/icons/square';
+	import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
+	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import XIcon from '@lucide/svelte/icons/x';
+	import AppWindowIcon from '@lucide/svelte/icons/app-window';
+	import SparklesIcon from '@lucide/svelte/icons/sparkles';
+	import FileIcon from '@lucide/svelte/icons/file';
+	import favicon from '$lib/assets/favicon.svg';
+
+	type Kind = 'tab' | 'skill';
+	type MentionItem = { id: string; label: string; sublabel?: string; favicon?: string; kind: Kind };
+	type MentionGroup = { type: string; icon: typeof AppWindowIcon; items: MentionItem[] };
+	type ContextItem = {
+		id: string;
+		title: string;
+		sublabel?: string;
+		favicon?: string;
+		kind: 'tab' | 'file';
+	};
+
+	type Props = {
+		contextTitle?: string;
+		contextUrl?: string;
+		contextFavicon?: string;
+		placeholder?: string;
+		mentionGroups?: MentionGroup[];
+		streaming?: boolean;
+		queued?: string[];
+		showContext?: boolean;
+		onSend?: (value: string, context: { title: string; sublabel?: string; favicon?: string }[]) => void;
+		onStop?: () => void;
+		onRemoveQueued?: (index: number) => void;
+	};
+
+	const defaultMentionGroups: MentionGroup[] = [
+		{
+			type: 'Tabs',
+			icon: AppWindowIcon,
+			items: [
+				{ id: 't1', label: 'Ask Browser', sublabel: 'localhost', favicon, kind: 'tab' },
+				{ id: 't2', label: 'GitHub', sublabel: 'github.com', kind: 'tab' },
+				{ id: 't3', label: 'Linear', sublabel: 'linear.app', kind: 'tab' },
+				{ id: 't4', label: 'Gmail', sublabel: 'mail.google.com', kind: 'tab' }
+			]
+		},
+		{
+			type: 'Skills',
+			icon: SparklesIcon,
+			items: [
+				{ id: 's1', label: 'summarize', sublabel: 'Summarize the page', kind: 'skill' },
+				{ id: 's2', label: 'extract-data', sublabel: 'Pull structured data', kind: 'skill' },
+				{ id: 's3', label: 'fill-form', sublabel: 'Fill out forms', kind: 'skill' },
+				{ id: 's4', label: 'deep-research', sublabel: 'Research across sources', kind: 'skill' }
+			]
+		}
+	];
+
+	let {
+		contextTitle = 'Ask Browser',
+		contextUrl = 'localhost',
+		contextFavicon = favicon,
+		placeholder = 'Ask or do anything…',
+		mentionGroups = defaultMentionGroups,
+		streaming = false,
+		queued = [],
+		showContext = true,
+		onSend,
+		onStop,
+		onRemoveQueued
+	}: Props = $props();
+
+	let value = $state('');
+	let textarea = $state<HTMLTextAreaElement | null>(null);
+	let mirror = $state<HTMLDivElement | null>(null);
+	let menuEl = $state<HTMLDivElement | null>(null);
+	let fileInput = $state<HTMLInputElement | null>(null);
+	let canSend = $derived(value.trim().length > 0);
+	// Stop only shows while streaming with an empty input; typed text always wins → send/queue.
+	let showStop = $derived(streaming && !canSend);
+	let beamSignal = $state(0);
+
+	// Context chips — current tab first, then any mentioned tabs / uploaded files.
+	let contextItems = $state<ContextItem[]>(
+		untrack(() =>
+			showContext
+				? [{ id: 't1', title: contextTitle, sublabel: contextUrl, favicon: contextFavicon, kind: 'tab' }]
+				: []
+		)
+	);
+
+	function addContextItem(item: ContextItem) {
+		if (!contextItems.some((c) => c.id === item.id)) contextItems = [...contextItems, item];
+	}
+	async function removeContextItem(id: string) {
+		const item = contextItems.find((c) => c.id === id);
+		contextItems = contextItems.filter((c) => c.id !== id);
+		// Removing a tab card also deletes its inline @mention (but not the reverse).
+		if (item?.kind === 'tab') {
+			const re = new RegExp(`(^|\\s)@${escapeRe(item.title)}(?=$|\\s|[.,!?;:])\\s?`);
+			value = value.replace(re, (_m, p1) => p1);
+			await tick();
+			autosize();
+		}
+	}
+
+	function formatSize(n: number) {
+		if (n < 1024) return n + ' B';
+		if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+		return (n / (1024 * 1024)).toFixed(1) + ' MB';
+	}
+	function onFilesChosen(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		for (const f of Array.from(input.files ?? [])) {
+			addContextItem({
+				id: 'file-' + f.name + '-' + f.size,
+				title: f.name,
+				sublabel: formatSize(f.size),
+				kind: 'file'
+			});
+		}
+		input.value = '';
+	}
+
+	// --- @ mention autocomplete ---------------------------------------------
+	let mentionOpen = $state(false);
+	let mentionQuery = $state('');
+	let mentionStart = $state(0);
+	let activeIndex = $state(0);
+
+	let filteredGroups = $derived(
+		mentionGroups
+			.map((g) => ({
+				...g,
+				items: g.items.filter((it) =>
+					it.label.toLowerCase().includes(mentionQuery.toLowerCase())
+				)
+			}))
+			.filter((g) => g.items.length > 0)
+	);
+	let flatItems = $derived(filteredGroups.flatMap((g) => g.items));
+	let rows = $derived.by(() => {
+		const out: Array<
+			| { kind: 'header'; type: string; first: boolean }
+			| { kind: 'item'; item: MentionItem; icon: typeof AppWindowIcon; index: number }
+		> = [];
+		let i = 0;
+		let gi = 0;
+		for (const g of filteredGroups) {
+			out.push({ kind: 'header', type: g.type, first: gi === 0 });
+			for (const it of g.items) out.push({ kind: 'item', item: it, icon: g.icon, index: i++ });
+			gi++;
+		}
+		return out;
+	});
+
+	function escapeHtml(s: string) {
+		return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? c);
+	}
+	function escapeRe(s: string) {
+		return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	}
+
+	// Inline mentions are skills only (tabs/files become chips). Anchor at a word
+	// boundary so emails (foo@bar) don't match.
+	let mentionRe = $derived.by(() => {
+		const labels = mentionGroups
+			.flatMap((g) => g.items)
+			.map((i) => i.label)
+			.sort((a, b) => b.length - a.length)
+			.map(escapeRe);
+		if (!labels.length) return null;
+		return new RegExp(`(?<=^|\\s)(@(?:${labels.join('|')}))(?=$|\\s|[.,!?;:])`, 'g');
+	});
+
+	let highlighted = $derived.by(() => {
+		const re = mentionRe;
+		if (!re) return escapeHtml(value);
+		let html = '';
+		let last = 0;
+		let m: RegExpExecArray | null;
+		re.lastIndex = 0;
+		while ((m = re.exec(value)) !== null) {
+			html += escapeHtml(value.slice(last, m.index));
+			html += `<span class="mention-token">${escapeHtml(m[1])}</span>`;
+			last = m.index + m[1].length;
+		}
+		html += escapeHtml(value.slice(last));
+		return html;
+	});
+
+	function syncScroll() {
+		if (mirror && textarea) mirror.scrollTop = textarea.scrollTop;
+	}
+
+	$effect(() => {
+		if (!mentionOpen) return;
+		const i = activeIndex;
+		const el = menuEl?.querySelector(`[data-idx="${i}"]`) as HTMLElement | null;
+		el?.scrollIntoView({ block: 'nearest' });
+	});
+
+	function updateMention() {
+		const el = textarea;
+		if (!el) return (mentionOpen = false);
+		const caret = el.selectionStart ?? value.length;
+		const before = value.slice(0, caret);
+		const at = before.lastIndexOf('@');
+		if (at === -1) return (mentionOpen = false);
+		const startsToken = at === 0 || /\s/.test(before[at - 1] ?? '');
+		const token = before.slice(at + 1);
+		if (startsToken && !/\s/.test(token)) {
+			mentionStart = at;
+			mentionQuery = token;
+			activeIndex = 0;
+			mentionOpen = true;
+		} else {
+			mentionOpen = false;
+		}
+	}
+
+	async function replaceQuery(insert: string) {
+		const el = textarea;
+		const caret = el?.selectionStart ?? value.length;
+		const before = value.slice(0, mentionStart);
+		const after = value.slice(caret);
+		value = before + insert + after;
+		mentionOpen = false;
+		await tick();
+		const pos = (before + insert).length;
+		el?.focus();
+		el?.setSelectionRange(pos, pos);
+		autosize();
+	}
+
+	function selectMention(item: MentionItem) {
+		// Tabs are added to the context row up top, AND the @mention stays inline.
+		if (item.kind === 'tab') {
+			addContextItem({
+				id: item.id,
+				title: item.label,
+				sublabel: item.sublabel,
+				favicon: item.favicon,
+				kind: 'tab'
+			});
+		}
+		replaceQuery('@' + item.label + ' ');
+	}
+
+	function autosize() {
+		if (!textarea) return;
+		textarea.style.height = 'auto';
+		textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
+	}
+
+	function send() {
+		if (!canSend) return;
+		const wasStreaming = streaming; // capture before onSend flips streaming on
+		const context = contextItems.map((c) => ({
+			title: c.title,
+			sublabel: c.sublabel,
+			favicon: c.favicon
+		}));
+		onSend?.(value.trim(), context);
+		if (!wasStreaming) beamSignal += 1; // beam a fresh send; queued messages don't beam
+		value = '';
+		mentionOpen = false;
+		autosize();
+		textarea?.focus(); // keep focus after sending / queueing
+	}
+
+	onMount(() => textarea?.focus());
+
+	function onKeydown(e: KeyboardEvent) {
+		if (mentionOpen && flatItems.length) {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				activeIndex = (activeIndex + 1) % flatItems.length;
+				return;
+			}
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				activeIndex = (activeIndex - 1 + flatItems.length) % flatItems.length;
+				return;
+			}
+			if (e.key === 'Enter' || e.key === 'Tab') {
+				e.preventDefault();
+				selectMention(flatItems[activeIndex]);
+				return;
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				mentionOpen = false;
+				return;
+			}
+		}
+		if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault();
+			send();
+		}
+	}
+</script>
+
+<div class="surface-panel relative rounded-[22px] p-2">
+	<BorderBeam signal={beamSignal} radius={22} />
+
+	<!-- @ mention autocomplete -->
+	{#if mentionOpen}
+		<div
+			bind:this={menuEl}
+			transition:fly={{ y: 6, duration: 160, easing: motionEase }}
+			class="bg-popover/40 ring-white/15 scrollbar-none absolute right-0 bottom-[calc(100%+0.5rem)] left-0 z-50 max-h-72 origin-bottom overflow-y-auto rounded-2xl p-1.5 shadow-2xl shadow-black/40 ring-1 backdrop-blur-2xl backdrop-saturate-150"
+		>
+			{#if flatItems.length}
+				{#each rows as row (row.kind === 'header' ? 'h-' + row.type : 'i-' + row.item.id)}
+					{#if row.kind === 'header'}
+						{#if !row.first}
+							<div class="bg-border mx-2 my-1.5 h-px"></div>
+						{/if}
+						<div
+							class="text-muted-foreground/60 px-2.5 pt-1 pb-1 text-[11px] font-semibold tracking-[0.08em] uppercase"
+						>
+							{row.type}
+						</div>
+					{:else}
+						{@const Icon = row.icon}
+						<button
+							type="button"
+							data-idx={row.index}
+							onmousedown={(e) => e.preventDefault()}
+							onclick={() => selectMention(row.item)}
+							onmouseenter={() => (activeIndex = row.index)}
+							class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-colors {activeIndex ===
+							row.index
+								? 'bg-white/[0.07]'
+								: ''}"
+						>
+							{#if row.item.favicon}
+								<img src={row.item.favicon} alt="" class="size-[18px] shrink-0 rounded" />
+							{:else}
+								<Icon class="text-muted-foreground size-[18px] shrink-0" />
+							{/if}
+							<span class="text-foreground truncate text-sm font-medium">{row.item.label}</span>
+							{#if row.item.sublabel}
+								<span class="text-muted-foreground/60 ml-auto truncate pl-3 text-xs">
+									{row.item.sublabel}
+								</span>
+							{/if}
+						</button>
+					{/if}
+				{/each}
+			{:else}
+				<div class="text-muted-foreground px-2.5 py-2 text-sm">No matches</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Context row: current tab + mentioned tabs / uploaded files (scrolls horizontally) -->
+	{#if contextItems.length}
+		<div transition:slide={{ duration: 240, easing: motionEase }} class="overflow-hidden">
+			<div class="scrollbar-none mb-2 flex gap-1.5 overflow-x-auto">
+				{#each contextItems as item (item.id)}
+				<div
+					in:scale={{ duration: 220, start: 0.9, opacity: 0, easing: motionEase }}
+					out:scale={{ duration: 220, start: 0.9, opacity: 0, easing: motionEase }}
+					animate:flip={{ duration: 300, easing: motionEase }}
+					class="group surface-raised flex shrink-0 items-center gap-2.5 rounded-2xl py-1.5 pr-2 pl-1.5"
+				>
+					<div class="grid size-9 shrink-0 place-items-center rounded-lg bg-white/[0.07]">
+						{#if item.kind === 'file'}
+							<FileIcon class="text-muted-foreground size-5" />
+						{:else if item.favicon}
+							<img src={item.favicon} alt="" class="size-5" />
+						{:else}
+							<AppWindowIcon class="text-muted-foreground size-5" />
+						{/if}
+					</div>
+					<div class="min-w-0 max-w-[150px]">
+						<p class="text-foreground truncate text-[15px] leading-tight font-semibold">
+							{item.title}
+						</p>
+						{#if item.sublabel}
+							<p class="text-muted-foreground truncate text-[13px] leading-tight">{item.sublabel}</p>
+						{/if}
+					</div>
+					<button
+						type="button"
+						onclick={() => removeContextItem(item.id)}
+						aria-label="Remove from context"
+						class="text-muted-foreground hover:text-foreground ml-1 grid size-5 shrink-0 place-items-center rounded-full opacity-0 transition group-hover:opacity-100 hover:bg-white/10 focus-visible:opacity-100"
+					>
+						<XIcon class="size-3.5" />
+					</button>
+					</div>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
+	<!-- Queued messages (typed while a response is streaming) -->
+	{#if queued.length}
+		<div class="mb-2 flex flex-col gap-1.5">
+			{#each queued as q, i (i)}
+				<div
+					in:slide={{ duration: 220, easing: motionEase }}
+					out:slide={{ duration: 200, easing: motionEase }}
+					animate:flip={{ duration: 260, easing: motionEase }}
+					class="surface-raised group flex items-center gap-2.5 rounded-xl py-2 pr-1.5 pl-3"
+				>
+					<CornerDownRightIcon class="text-muted-foreground size-4 shrink-0" />
+					<span class="text-foreground min-w-0 flex-1 truncate text-sm">{q}</span>
+					<button
+						type="button"
+						onclick={() => onRemoveQueued?.(i)}
+						aria-label="Remove from queue"
+						class="text-muted-foreground hover:text-foreground grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-white/10"
+					>
+						<Trash2Icon class="size-4" />
+					</button>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	<!-- Input row -->
+	<div class="flex items-end gap-2 px-1">
+		<Button
+			variant="ghost"
+			size="icon"
+			onclick={() => fileInput?.click()}
+			class="surface-raised text-muted-foreground hover:text-foreground size-8 shrink-0 rounded-full transition-[filter] hover:brightness-115"
+			aria-label="Upload a file"
+		>
+			<PlusIcon class="size-[18px]" />
+		</Button>
+		<input bind:this={fileInput} type="file" multiple class="hidden" onchange={onFilesChosen} />
+
+		<div class="relative min-w-0 flex-1 self-center">
+			<!-- highlight layer (mirrors the textarea, colors mentions) -->
+			<div
+				bind:this={mirror}
+				aria-hidden="true"
+				class="text-foreground scrollbar-none pointer-events-none absolute inset-0 max-h-40 overflow-hidden py-1.5 text-sm leading-snug break-words whitespace-pre-wrap"
+			>{@html highlighted}</div>
+			<textarea
+				bind:this={textarea}
+				bind:value
+				oninput={() => {
+					autosize();
+					updateMention();
+					syncScroll();
+				}}
+				onscroll={syncScroll}
+				onkeyup={(e) => {
+					if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateMention();
+				}}
+				onkeydown={onKeydown}
+				onblur={() => (mentionOpen = false)}
+				rows="1"
+				{placeholder}
+				class="placeholder:text-muted-foreground scrollbar-none relative block max-h-40 w-full resize-none bg-transparent py-1.5 text-sm leading-snug break-words whitespace-pre-wrap text-transparent caret-white outline-none"
+			></textarea>
+		</div>
+
+		<Button
+			onclick={showStop ? onStop : send}
+			disabled={!showStop && !canSend}
+			size="icon"
+			class="size-8 shrink-0 rounded-full transition-[filter,background-color,color] duration-150 disabled:opacity-100 {showStop
+				? 'bg-foreground text-background hover:bg-foreground/90'
+				: canSend
+					? 'surface-raised text-white hover:brightness-115'
+					: 'surface-raised text-muted-foreground hover:brightness-115'}"
+			aria-label={showStop ? 'Stop' : 'Send'}
+		>
+			{#if showStop}
+				<SquareIcon class="size-3.5 fill-current" />
+			{:else}
+				<ArrowUpIcon class="size-[18px]" />
+			{/if}
+		</Button>
+	</div>
+</div>
