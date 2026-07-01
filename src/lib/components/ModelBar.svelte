@@ -10,8 +10,8 @@
 	};
 
 	let {
-		provider = $bindable('Claude'),
-		model = $bindable('Opus 4.8'),
+		provider = $bindable('anthropic'),
+		model = $bindable('claude-opus-4-6'),
 		effort = $bindable('High'),
 		permission = $bindable('read')
 	}: Props = $props();

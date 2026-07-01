@@ -1,22 +1,19 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { scale, fly } from 'svelte/transition';
+	import {
+		getCurrentTabContext,
+		type AgentPermissionMode,
+		type BrainTabContext
+	} from '$lib/brain/bridge';
+	import { motionEase } from '$lib/motion';
+	import { createChatSession } from '$lib/chatSession.svelte';
 	import SidebarHeader from '$lib/components/SidebarHeader.svelte';
 	import Conversation from '$lib/components/Conversation.svelte';
 	import Composer from '$lib/components/Composer.svelte';
+	import QuestionTool from '$lib/components/QuestionTool.svelte';
 	import ModelBar from '$lib/components/ModelBar.svelte';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
-	import { scale } from 'svelte/transition';
-	import { tick } from 'svelte';
-	import { motionEase } from '$lib/motion';
-	import {
-		STEP_SEQUENCE,
-		ANSWER_BLOCKS,
-		buildTokens,
-		type Message,
-		type AssistantMessage,
-		type ContextRef
-	} from '$lib/chat';
-
-	let messages = $state<Message[]>([]);
 
 	let scrollEl = $state<HTMLElement | null>(null);
 	let showScrollDown = $state(false);
@@ -36,97 +33,19 @@
 		if (scrollHeight - (scrollTop + clientHeight) < 160) scrollToBottom(false);
 	}
 
-	const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-	const rand = (a: number, b: number) => a + Math.random() * (b - a);
+	// ── the one shared chat engine (same code as the full chat) ──────────────
+	const chat = createChatSession({ pin: pinIfNear, surface: 'sidebar' });
+	let currentTab = $state<BrainTabContext | null>(null);
+	let provider = $state('anthropic');
+	let model = $state('claude-opus-4-6');
+	let effort = $state('High');
+	let permission = $state<AgentPermissionMode>('read');
 
-	let streaming = $state(false);
-	let stopRequested = false;
-	// Messages typed while a response is streaming wait here, then run in order.
-	let queue = $state<{ text: string; context: ContextRef[] }[]>([]);
-
-	function stopStreaming() {
-		stopRequested = true;
-	}
-	function removeQueued(i: number) {
-		queue = queue.filter((_, j) => j !== i);
-	}
-
-	async function streamOne(text: string, context: ContextRef[]) {
-		stopRequested = false;
-		messages.push({ role: 'user', text, context });
-		const raw: AssistantMessage = {
-			role: 'assistant',
-			steps: [],
-			phase: 'thinking',
-			thoughtSeconds: 15,
-			collapsed: true,
-			blocks: ANSWER_BLOCKS,
-			tokens: buildTokens(ANSWER_BLOCKS),
-			revealed: 0
-		};
-		messages.push(raw);
-		const a = messages[messages.length - 1] as AssistantMessage; // reactive proxy
-		await tick();
-		scrollToBottom(false);
-
-		// 1) stream the reasoning steps
-		for (let i = 0; i < STEP_SEQUENCE.length; i++) {
-			await delay(i === 0 ? 280 : rand(520, 820));
-			if (stopRequested) break;
-			a.steps.push(STEP_SEQUENCE[i]);
-			await tick();
-			pinIfNear();
-		}
-
-		if (!stopRequested) {
-			// 2) collapse the steps into "Thought for 15 seconds", then start answering
-			await delay(620);
-			a.phase = 'answering';
-			await tick();
-			pinIfNear();
-			await delay(120);
-
-			// 3) stream the answer — steady word cadence, whitespace reveals instantly so
-			// the per-word fades overlap into one flowing wave.
-			let paced = 0;
-			while (a.revealed < a.tokens.length) {
-				if (stopRequested) break;
-				const tok = a.tokens[a.revealed];
-				a.revealed += 1;
-				if (tok && tok.word.trim() !== '') {
-					await delay(rand(26, 46));
-					if (++paced % 5 === 0) pinIfNear();
-				}
-			}
-		}
-
-		a.phase = 'done';
-		await tick();
-		pinIfNear();
-	}
-
-	async function drain(text: string, context: ContextRef[]) {
-		streaming = true;
-		let cur: { text: string; context: ContextRef[] } | null = { text, context };
-		while (cur) {
-			await streamOne(cur.text, cur.context);
-			if (queue.length) {
-				cur = queue[0];
-				queue = queue.slice(1);
-			} else {
-				cur = null;
-			}
-		}
-		streaming = false;
-	}
-
-	function handleSend(text: string, context: ContextRef[]) {
-		if (streaming) {
-			queue = [...queue, { text, context }]; // queue it
-		} else {
-			drain(text, context);
-		}
-	}
+	onMount(() => {
+		void getCurrentTabContext().then((tab) => {
+			currentTab = tab;
+		});
+	});
 </script>
 
 <svelte:head>
@@ -141,13 +60,20 @@
 		class="scrollbar-none absolute inset-0 overflow-y-auto"
 		style="padding-top: 3.5rem; padding-bottom: {footerH}px;"
 	>
-		<Conversation {messages} />
+		<Conversation messages={chat.messages} />
 	</main>
 
 	<!-- top: progressive fade/blur, then header content on top -->
 	<div class="scroll-fade scroll-fade-top pointer-events-none absolute inset-x-0 top-0 z-10 h-24"></div>
 	<div class="absolute inset-x-0 top-0 z-20">
-		<SidebarHeader current="New Session" />
+		<SidebarHeader
+			current={chat.title}
+			groups={chat.sessionGroups}
+			loading={chat.sessionsLoading}
+			{currentTab}
+			onNew={chat.newChat}
+			onSelect={chat.loadSession}
+		/>
 	</div>
 
 	<!-- bottom: progressive fade/blur, then footer content on top -->
@@ -159,7 +85,7 @@
 		bind:clientHeight={footerH}
 		class="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2.5 px-3 pt-2 pb-3"
 	>
-		{#if showScrollDown}
+		{#if showScrollDown && !chat.questionActive}
 			<button
 				type="button"
 				onclick={() => scrollToBottom()}
@@ -170,13 +96,29 @@
 				<ChevronDownIcon class="size-4" />
 			</button>
 		{/if}
-		<Composer
-			onSend={handleSend}
-			onStop={stopStreaming}
-			{streaming}
-			queued={queue.map((q) => q.text)}
-			onRemoveQueued={removeQueued}
-		/>
-		<ModelBar />
+
+		<!-- The question tool REPLACES the reply bar while it's active -->
+		{#if chat.questionActive}
+			<div transition:fly={{ y: 12, duration: 260, easing: motionEase }}>
+				<QuestionTool
+					questions={chat.pendingQuestion?.questions}
+					onCancel={chat.cancelQuestion}
+					onComplete={chat.completeQuestion}
+				/>
+			</div>
+		{:else}
+			{#key currentTab?.tab_id ?? 'no-tab'}
+				<Composer
+					currentTab={currentTab}
+					onSend={(text, context) =>
+						chat.handleSend(text, context, { provider, model, permission, tabContext: currentTab })}
+					onStop={chat.stopStreaming}
+					streaming={chat.streaming}
+					queued={chat.queue.map((q) => q.text)}
+					onRemoveQueued={chat.removeQueued}
+				/>
+			{/key}
+		{/if}
+		<ModelBar bind:provider bind:model bind:effort bind:permission />
 	</footer>
 </div>

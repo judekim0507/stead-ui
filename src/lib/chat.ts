@@ -13,7 +13,13 @@ export type Token = {
 
 export type StepKind = 'thought' | 'tab' | 'memory';
 export type Step = { kind: StepKind; label: string };
-export type ContextRef = { title: string; sublabel?: string; favicon?: string };
+export type ContextRef = {
+	title: string;
+	sublabel?: string;
+	favicon?: string;
+	tab_id?: number;
+	url?: string;
+};
 
 export type UserMessage = { role: 'user'; text: string; context: ContextRef[] };
 export type AssistantMessage = {
@@ -27,6 +33,15 @@ export type AssistantMessage = {
 	revealed: number;
 };
 export type Message = UserMessage | AssistantMessage;
+
+export function blocksFromText(text: string): Block[] {
+	const trimmed = text.trimEnd();
+	if (!trimmed) return [];
+	return trimmed.split(/\n{2,}/).map((paragraph) => ({
+		kind: 'p',
+		runs: [{ text: paragraph }]
+	}));
+}
 
 export const STEP_SEQUENCE: Step[] = [
 	{

@@ -2,7 +2,6 @@
 	"name": "stead-ui",
 	"private": true,
 	"version": "0.0.1",
-	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
@@ -17,7 +16,6 @@
 		"@internationalized/date": "^3.12.0",
 		"@lucide/svelte": "^1.21.0",
 		"@sveltejs/adapter-auto": "^7.0.1",
-		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
 		"@tailwindcss/vite": "^4.3.0",

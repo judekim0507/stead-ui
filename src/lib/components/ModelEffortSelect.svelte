@@ -6,11 +6,19 @@
 		model: string;
 		effort: string;
 		models: string[];
+		modelLabels?: Record<string, string>;
 		efforts: string[];
 		align?: 'start' | 'end';
 	};
 
-	let { model = $bindable(), effort = $bindable(), models, efforts, align = 'end' }: Props = $props();
+	let {
+		model = $bindable(),
+		effort = $bindable(),
+		models,
+		modelLabels = {},
+		efforts,
+		align = 'end'
+	}: Props = $props();
 
 	const triggerText =
 		'text-muted-foreground hover:text-foreground flex items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors hover:bg-white/5 outline-none data-[state=open]:text-foreground';
@@ -21,7 +29,7 @@
 	<DropdownMenu.Trigger>
 		{#snippet child({ props })}
 			<button {...props} class={triggerText}>
-				<span>{model}</span>
+				<span>{modelLabels[model] ?? model}</span>
 				<span class="opacity-55">{effort}</span>
 				<ChevronDownIcon class="size-3.5 opacity-70" />
 			</button>
@@ -32,7 +40,7 @@
 			<DropdownMenu.GroupHeading class={sectionLabel}>Model</DropdownMenu.GroupHeading>
 			<DropdownMenu.RadioGroup bind:value={model}>
 				{#each models as m (m)}
-					<DropdownMenu.RadioItem value={m}>{m}</DropdownMenu.RadioItem>
+					<DropdownMenu.RadioItem value={m}>{modelLabels[m] ?? m}</DropdownMenu.RadioItem>
 				{/each}
 			</DropdownMenu.RadioGroup>
 		</DropdownMenu.Group>

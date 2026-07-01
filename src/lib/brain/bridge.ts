@@ -1,0 +1,1034 @@
+export type BrainRequestResult = {
+	ok: boolean;
+	request_id: string;
+	code: string;
+	message: string;
+};
+
+export type BrainConsoleEvent = {
+	type: string;
+	request_id?: string;
+	session_id?: string;
+	payload_json: string;
+};
+
+export type BrainSessionInfo = {
+	id: string;
+	title: string;
+	created_at: string;
+	updated_at: string;
+	path: string;
+};
+
+export type ProviderAuthStatus = {
+	provider: string;
+	configured: boolean;
+	credential_kind?: string;
+	source?: string;
+	account_id?: string;
+	expires_at_unix_secs?: number;
+	needs_refresh: boolean;
+};
+
+export type ProviderAuthUrl = {
+	provider: string;
+	url: string;
+	expires_in_secs?: number;
+};
+
+export type BrainModelCatalogEntry = {
+	id: string;
+	name: string;
+	api: string;
+	reasoning: boolean;
+	input: string[];
+	context_window: number;
+	max_tokens: number;
+};
+
+export type BrainModelCatalogProvider = {
+	provider: string;
+	label: string;
+	configured: boolean;
+	credential_kind?: string;
+	source?: string;
+	supports_oauth: boolean;
+	supports_codex_import: boolean;
+	models: BrainModelCatalogEntry[];
+};
+
+export type BrainModelSelection = {
+	provider: string;
+	model: string;
+};
+
+export type AgentPermissionMode = 'ask' | 'read' | 'full';
+
+export type BrainTabContext = {
+	tab_id: number;
+	url: string;
+	title: string;
+};
+
+export type NativeBrainConsole = {
+	addObserver(handler: (event: BrainConsoleEvent) => void): () => void;
+	initialize(): Promise<BrainRequestResult>;
+	createSession(title: string | null, originSurface: string): Promise<BrainRequestResult>;
+	listSessions(): Promise<BrainRequestResult>;
+	loadSession(sessionId: string): Promise<BrainRequestResult>;
+	sendMessage(
+		sessionId: string,
+		text: string,
+		tabContext?: BrainTabContext | null,
+		model?: BrainModelSelection | null,
+		permissionMode?: AgentPermissionMode
+	): Promise<BrainRequestResult>;
+	cancelTurn(sessionId: string): Promise<BrainRequestResult>;
+	listModels(): Promise<BrainRequestResult>;
+	listProviderAuth(): Promise<BrainRequestResult>;
+	startProviderOAuth(provider: string): Promise<BrainRequestResult>;
+	importCodexAuth(path?: string | null): Promise<BrainRequestResult>;
+	clearProviderCredential(provider: string): Promise<BrainRequestResult>;
+	setProviderApiKey(provider: string, apiKey: string): Promise<BrainRequestResult>;
+	respondToUserPrompt(
+		sessionId: string,
+		toolCallId: string,
+		response: unknown,
+		cancelled?: boolean
+	): Promise<BrainRequestResult>;
+	shutdownBrain(): Promise<BrainRequestResult>;
+};
+
+declare global {
+	interface Window {
+		steadBrain?: NativeBrainConsole;
+		steadTabContext?: BrainTabContext | (() => BrainTabContext | null | Promise<BrainTabContext | null>);
+	}
+}
+
+type MojoBrainResult = {
+	ok: boolean;
+	requestId?: string;
+	request_id?: string;
+	code: string;
+	message: string;
+};
+
+type MojoBrainEvent = {
+	type: string;
+	requestId?: string;
+	request_id?: string;
+	sessionId?: string;
+	session_id?: string;
+	payloadJson?: string;
+	payload_json?: string;
+};
+
+type MojoBrainPermissionMode = number;
+
+type MojoRemote = {
+	$: { bindNewPipeAndPassReceiver(): unknown };
+	addObserver(remote: unknown): void;
+	initialize(): Promise<{ result: MojoBrainResult }>;
+	shutdownBrain(): Promise<{ result: MojoBrainResult }>;
+	createSession(title: string | null, originSurface: string): Promise<{ result: MojoBrainResult }>;
+	listSessions(): Promise<{ result: MojoBrainResult }>;
+	loadSession(sessionId: string): Promise<{ result: MojoBrainResult }>;
+	sendMessage(
+		sessionId: string,
+		text: string,
+		tabContext: { tabId: number; url: string; title: string } | null,
+		model: BrainModelSelection | null,
+		permissionMode: MojoBrainPermissionMode
+	): Promise<{ result: MojoBrainResult }>;
+	cancelTurn(sessionId: string): Promise<{ result: MojoBrainResult }>;
+	listModels(): Promise<{ result: MojoBrainResult }>;
+	listProviderAuth(): Promise<{ result: MojoBrainResult }>;
+	startProviderOAuth(provider: string): Promise<{ result: MojoBrainResult }>;
+	importCodexAuth(path: string | null): Promise<{ result: MojoBrainResult }>;
+	clearProviderCredential(provider: string): Promise<{ result: MojoBrainResult }>;
+	setProviderApiKey(provider: string, apiKey: string): Promise<{ result: MojoBrainResult }>;
+	respondToUserPrompt(
+		sessionId: string,
+		toolCallId: string,
+		responseJson: string,
+		cancelled: boolean
+	): Promise<{ result: MojoBrainResult }>;
+};
+
+type MojoModule = {
+	BrainConsoleRemote: new () => MojoRemote;
+	BrainPermissionMode: {
+		kAsk: MojoBrainPermissionMode;
+		kRead: MojoBrainPermissionMode;
+		kFull: MojoBrainPermissionMode;
+	};
+	BrainObserverReceiver: new (impl: { onBrainEvent(event: MojoBrainEvent): void }) => {
+		$: { bindNewPipeAndPassRemote(): unknown };
+	};
+};
+
+type BrowserInterfaceBrokerModule = {
+	BrowserInterfaceBroker: {
+		getInstance(): { getInterface(receiver: unknown): void };
+	};
+};
+
+type ChromeTabsApi = {
+	query(
+		queryInfo: { active: boolean; currentWindow: boolean },
+		callback: (tabs: Array<{ id?: number; url?: string; title?: string }>) => void
+	): void;
+};
+
+type Waiter<T> = {
+	requestId: string;
+	accept: (event: BrainConsoleEvent, payload: unknown) => T | undefined;
+	resolve: (value: T) => void;
+	reject: (error: Error) => void;
+	timer: ReturnType<typeof setTimeout>;
+};
+
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const AUTH_EVENT_TIMEOUT_MS = 5 * 60 * 1000;
+const BRAIN_MOJO_MODULES = [
+	'chrome://resources/mojo/chrome/browser/ui/stead/brain/brain_console.mojom-webui.js',
+	'/brain_console.mojom-webui.js',
+	'./brain_console.mojom-webui.js'
+];
+const BROWSER_INTERFACE_BROKER_MODULE = 'chrome://resources/js/browser_interface_broker.js';
+const DEV_MODEL_CATALOG: BrainModelCatalogProvider[] = [
+	{
+		provider: 'anthropic',
+		label: 'Claude',
+		configured: false,
+		supports_oauth: true,
+		supports_codex_import: false,
+		models: [
+			{
+				id: 'claude-opus-4-6',
+				name: 'Claude Opus 4.6',
+				api: 'anthropic-messages',
+				reasoning: true,
+				input: ['text', 'image'],
+				context_window: 1_000_000,
+				max_tokens: 128_000
+			},
+			{
+				id: 'claude-sonnet-4-6',
+				name: 'Claude Sonnet 4.6',
+				api: 'anthropic-messages',
+				reasoning: true,
+				input: ['text', 'image'],
+				context_window: 1_000_000,
+				max_tokens: 64_000
+			}
+		]
+	},
+	{
+		provider: 'openai-codex',
+		label: 'Codex',
+		configured: false,
+		supports_oauth: true,
+		supports_codex_import: true,
+		models: [
+			{
+				id: 'gpt-5.5',
+				name: 'GPT-5.5',
+				api: 'openai-codex-responses',
+				reasoning: true,
+				input: ['text', 'image'],
+				context_window: 400_000,
+				max_tokens: 128_000
+			},
+			{
+				id: 'gpt-5.3-codex',
+				name: 'GPT-5.3 Codex',
+				api: 'openai-codex-responses',
+				reasoning: true,
+				input: ['text', 'image'],
+				context_window: 400_000,
+				max_tokens: 128_000
+			}
+		]
+	},
+	{
+		provider: 'openai',
+		label: 'OpenAI',
+		configured: false,
+		supports_oauth: false,
+		supports_codex_import: false,
+		models: [
+			{
+				id: 'gpt-5.5',
+				name: 'GPT-5.5',
+				api: 'openai-responses',
+				reasoning: true,
+				input: ['text', 'image'],
+				context_window: 400_000,
+				max_tokens: 128_000
+			}
+		]
+	},
+	{
+		provider: 'google',
+		label: 'Gemini',
+		configured: false,
+		supports_oauth: false,
+		supports_codex_import: false,
+		models: [
+			{
+				id: 'gemini-3-pro',
+				name: 'Gemini 3 Pro',
+				api: 'google-generative-ai',
+				reasoning: true,
+				input: ['text', 'image'],
+				context_window: 1_000_000,
+				max_tokens: 65_536
+			}
+		]
+	}
+];
+
+const dynamicImport = <T>(specifier: string) =>
+	import(/* @vite-ignore */ specifier) as Promise<T>;
+
+async function importFirst<T>(specifiers: string[]): Promise<T> {
+	const failures: string[] = [];
+	for (const specifier of specifiers) {
+		try {
+			return await dynamicImport<T>(specifier);
+		} catch (error) {
+			failures.push(`${specifier}: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+	throw new Error(`Unable to load Stead Brain Mojo module. ${failures.join(' | ')}`);
+}
+
+function normalizeResult(result: MojoBrainResult): BrainRequestResult {
+	return {
+		ok: result.ok,
+		request_id: result.request_id ?? result.requestId ?? '',
+		code: result.code,
+		message: result.message
+	};
+}
+
+function normalizeEvent(event: MojoBrainEvent): BrainConsoleEvent {
+	return {
+		type: event.type,
+		request_id: event.request_id ?? event.requestId ?? '',
+		session_id: event.session_id ?? event.sessionId ?? '',
+		payload_json: event.payload_json ?? event.payloadJson ?? '{}'
+	};
+}
+
+function toMojoTabContext(tabContext?: BrainTabContext | null) {
+	if (!tabContext) return null;
+	return {
+		tabId: tabContext.tab_id,
+		url: tabContext.url,
+		title: tabContext.title
+	};
+}
+
+function normalizeTabContext(value: unknown): BrainTabContext | null {
+	if (!value || typeof value !== 'object') return null;
+	const record = value as Record<string, unknown>;
+	const tabId = record.tab_id ?? record.tabId ?? record.id;
+	if (typeof tabId !== 'number') return null;
+	return {
+		tab_id: tabId,
+		url: typeof record.url === 'string' ? record.url : '',
+		title: typeof record.title === 'string' ? record.title : ''
+	};
+}
+
+async function tabContextFromChromeTabs(): Promise<BrainTabContext | null> {
+	const chromeTabs = (globalThis as { chrome?: { tabs?: ChromeTabsApi } }).chrome?.tabs;
+	if (!chromeTabs?.query) return null;
+	return new Promise((resolve) => {
+		try {
+			chromeTabs.query({ active: true, currentWindow: true }, (tabs) => {
+				resolve(normalizeTabContext(tabs[0]));
+			});
+		} catch {
+			resolve(null);
+		}
+	});
+}
+
+export async function getCurrentTabContext(): Promise<BrainTabContext | null> {
+	const provider = globalThis.window?.steadTabContext;
+	if (typeof provider === 'function') {
+		try {
+			return normalizeTabContext(await provider());
+		} catch {
+			return null;
+		}
+	}
+	const provided = normalizeTabContext(provider);
+	if (provided) return provided;
+	return tabContextFromChromeTabs();
+}
+
+function toMojoPermissionMode(
+	mode: AgentPermissionMode,
+	permissionModes: MojoModule['BrainPermissionMode']
+) {
+	if (mode === 'ask') return permissionModes.kAsk;
+	if (mode === 'full') return permissionModes.kFull;
+	return permissionModes.kRead;
+}
+
+function parsePayload(event: BrainConsoleEvent): unknown {
+	try {
+		return JSON.parse(event.payload_json);
+	} catch {
+		return {};
+	}
+}
+
+function eventError(event: BrainConsoleEvent, payload: unknown) {
+	if (event.type !== 'error') return undefined;
+	const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+	const code = typeof record.code === 'string' ? record.code : 'brain_error';
+	const message = typeof record.message === 'string' ? record.message : 'Brain request failed.';
+	return new Error(`${code}: ${message}`);
+}
+
+class MojoBrainConsole implements NativeBrainConsole {
+	private listeners = new Set<(event: BrainConsoleEvent) => void>();
+	private observerReceiver: InstanceType<MojoModule['BrainObserverReceiver']>;
+
+	constructor(
+		private remote: MojoRemote,
+		BrainObserverReceiver: MojoModule['BrainObserverReceiver'],
+		private permissionModes: MojoModule['BrainPermissionMode']
+	) {
+		this.observerReceiver = new BrainObserverReceiver({
+			onBrainEvent: (event) => this.emit(normalizeEvent(event))
+		});
+		this.remote.addObserver(this.observerReceiver.$.bindNewPipeAndPassRemote());
+	}
+
+	addObserver(handler: (event: BrainConsoleEvent) => void) {
+		this.listeners.add(handler);
+		return () => this.listeners.delete(handler);
+	}
+
+	initialize() {
+		return this.call(() => this.remote.initialize());
+	}
+
+	createSession(title: string | null, originSurface: string) {
+		return this.call(() => this.remote.createSession(title, originSurface));
+	}
+
+	listSessions() {
+		return this.call(() => this.remote.listSessions());
+	}
+
+	loadSession(sessionId: string) {
+		return this.call(() => this.remote.loadSession(sessionId));
+	}
+
+	sendMessage(
+		sessionId: string,
+		text: string,
+		tabContext?: BrainTabContext | null,
+		model?: BrainModelSelection | null,
+		permissionMode: AgentPermissionMode = 'read'
+	) {
+		return this.call(() =>
+			this.remote.sendMessage(
+				sessionId,
+				text,
+				toMojoTabContext(tabContext),
+				model ?? null,
+				toMojoPermissionMode(permissionMode, this.permissionModes)
+			)
+		);
+	}
+
+	cancelTurn(sessionId: string) {
+		return this.call(() => this.remote.cancelTurn(sessionId));
+	}
+
+	listModels() {
+		return this.call(() => this.remote.listModels());
+	}
+
+	listProviderAuth() {
+		return this.call(() => this.remote.listProviderAuth());
+	}
+
+	startProviderOAuth(provider: string) {
+		return this.call(() => this.remote.startProviderOAuth(provider));
+	}
+
+	importCodexAuth(path?: string | null) {
+		return this.call(() => this.remote.importCodexAuth(path ?? null));
+	}
+
+	clearProviderCredential(provider: string) {
+		return this.call(() => this.remote.clearProviderCredential(provider));
+	}
+
+	setProviderApiKey(provider: string, apiKey: string) {
+		return this.call(() => this.remote.setProviderApiKey(provider, apiKey));
+	}
+
+	respondToUserPrompt(
+		sessionId: string,
+		toolCallId: string,
+		response: unknown,
+		cancelled = false
+	) {
+		return this.call(() =>
+			this.remote.respondToUserPrompt(sessionId, toolCallId, JSON.stringify(response ?? {}), cancelled)
+		);
+	}
+
+	shutdownBrain() {
+		return this.call(() => this.remote.shutdownBrain());
+	}
+
+	private async call(fn: () => Promise<{ result: MojoBrainResult }>) {
+		const response = await fn();
+		return normalizeResult(response.result);
+	}
+
+	private emit(event: BrainConsoleEvent) {
+		for (const listener of this.listeners) listener(event);
+	}
+}
+
+class LazyNativeBrainConsole implements NativeBrainConsole {
+	private listeners = new Set<(event: BrainConsoleEvent) => void>();
+	private nativePromise: Promise<NativeBrainConsole>;
+
+	constructor() {
+		this.nativePromise = createMojoBrainConsole().catch(() => fakeBrainConsole);
+	}
+
+	addObserver(handler: (event: BrainConsoleEvent) => void) {
+		this.listeners.add(handler);
+		let unsubscribeNative: (() => void) | undefined;
+		let active = true;
+		void this.nativePromise.then((native) => {
+			if (!active) return;
+			unsubscribeNative = native.addObserver(handler);
+		});
+		return () => {
+			active = false;
+			this.listeners.delete(handler);
+			unsubscribeNative?.();
+		};
+	}
+
+	async initialize() {
+		return (await this.nativePromise).initialize();
+	}
+
+	async createSession(title: string | null, originSurface: string) {
+		return (await this.nativePromise).createSession(title, originSurface);
+	}
+
+	async listSessions() {
+		return (await this.nativePromise).listSessions();
+	}
+
+	async loadSession(sessionId: string) {
+		return (await this.nativePromise).loadSession(sessionId);
+	}
+
+	async sendMessage(
+		sessionId: string,
+		text: string,
+		tabContext?: BrainTabContext | null,
+		model?: BrainModelSelection | null,
+		permissionMode: AgentPermissionMode = 'read'
+	) {
+		return (await this.nativePromise).sendMessage(
+			sessionId,
+			text,
+			tabContext,
+			model,
+			permissionMode
+		);
+	}
+
+	async cancelTurn(sessionId: string) {
+		return (await this.nativePromise).cancelTurn(sessionId);
+	}
+
+	async listModels() {
+		return (await this.nativePromise).listModels();
+	}
+
+	async listProviderAuth() {
+		return (await this.nativePromise).listProviderAuth();
+	}
+
+	async startProviderOAuth(provider: string) {
+		return (await this.nativePromise).startProviderOAuth(provider);
+	}
+
+	async importCodexAuth(path?: string | null) {
+		return (await this.nativePromise).importCodexAuth(path);
+	}
+
+	async clearProviderCredential(provider: string) {
+		return (await this.nativePromise).clearProviderCredential(provider);
+	}
+
+	async setProviderApiKey(provider: string, apiKey: string) {
+		return (await this.nativePromise).setProviderApiKey(provider, apiKey);
+	}
+
+	async respondToUserPrompt(
+		sessionId: string,
+		toolCallId: string,
+		response: unknown,
+		cancelled = false
+	) {
+		return (await this.nativePromise).respondToUserPrompt(
+			sessionId,
+			toolCallId,
+			response,
+			cancelled
+		);
+	}
+
+	async shutdownBrain() {
+		return (await this.nativePromise).shutdownBrain();
+	}
+}
+
+async function createMojoBrainConsole(): Promise<NativeBrainConsole> {
+	const [mojoModule, brokerModule] = await Promise.all([
+		importFirst<MojoModule>(BRAIN_MOJO_MODULES),
+		dynamicImport<BrowserInterfaceBrokerModule>(BROWSER_INTERFACE_BROKER_MODULE)
+	]);
+	const remote = new mojoModule.BrainConsoleRemote();
+	brokerModule.BrowserInterfaceBroker.getInstance().getInterface(
+		remote.$.bindNewPipeAndPassReceiver()
+	);
+	return new MojoBrainConsole(
+		remote,
+		mojoModule.BrainObserverReceiver,
+		mojoModule.BrainPermissionMode
+	);
+}
+
+class BrainBridge {
+	readonly isNative: boolean;
+	private listeners = new Set<(event: BrainConsoleEvent, payload: unknown) => void>();
+	private waiters = new Set<Waiter<unknown>>();
+
+	constructor(private native: NativeBrainConsole) {
+		this.isNative = native !== fakeBrainConsole;
+		this.native.addObserver((event) => this.handleEvent(event));
+	}
+
+	subscribe(listener: (event: BrainConsoleEvent, payload: unknown) => void) {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+
+	initialize() {
+		return this.native.initialize();
+	}
+
+	async createSession(title: string | null, originSurface: string) {
+		const accepted = await this.native.createSession(title, originSurface);
+		this.assertAccepted(accepted);
+		return this.waitFor(accepted.request_id, (event, payload) => {
+			if (event.type !== 'session_created') return;
+			const session = (payload as { session?: BrainSessionInfo }).session;
+			return session;
+		});
+	}
+
+	async listSessions() {
+		const accepted = await this.native.listSessions();
+		this.assertAccepted(accepted);
+		return this.waitFor<BrainSessionInfo[]>(accepted.request_id, (event, payload) => {
+			if (event.type !== 'sessions') return;
+			return (payload as { sessions?: BrainSessionInfo[] }).sessions ?? [];
+		});
+	}
+
+	async loadSession(sessionId: string) {
+		const accepted = await this.native.loadSession(sessionId);
+		this.assertAccepted(accepted);
+		return this.waitFor(accepted.request_id, (event, payload) => {
+			if (event.type !== 'session_loaded') return;
+			const session = (payload as { session?: BrainSessionInfo }).session;
+			return session;
+		});
+	}
+
+	async listProviderAuth() {
+		const accepted = await this.native.listProviderAuth();
+		this.assertAccepted(accepted);
+		return this.waitFor(accepted.request_id, (event, payload) => {
+			if (event.type !== 'provider_auth_status') return;
+			return (payload as { providers?: ProviderAuthStatus[] }).providers ?? [];
+		});
+	}
+
+	async listModels() {
+		const accepted = await this.native.listModels();
+		this.assertAccepted(accepted);
+		return this.waitFor<BrainModelCatalogProvider[]>(accepted.request_id, (event, payload) => {
+			if (event.type !== 'model_catalog') return;
+			return (payload as { providers?: BrainModelCatalogProvider[] }).providers ?? [];
+		});
+	}
+
+	async startProviderOAuth(provider: string) {
+		const accepted = await this.native.startProviderOAuth(provider);
+		this.assertAccepted(accepted);
+		return this.waitFor<ProviderAuthUrl>(
+			accepted.request_id,
+			(event, payload) => {
+				if (event.type !== 'provider_auth_url') return;
+				const record =
+					payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+				if (record.provider !== provider || typeof record.url !== 'string') return;
+				return {
+					provider,
+					url: record.url,
+					expires_in_secs:
+						typeof record.expires_in_secs === 'number' ? record.expires_in_secs : undefined
+				};
+			},
+			AUTH_EVENT_TIMEOUT_MS
+		);
+	}
+
+	async importCodexAuth(path?: string | null) {
+		const accepted = await this.native.importCodexAuth(path ?? null);
+		this.assertAccepted(accepted);
+		return this.waitFor(
+			accepted.request_id,
+			(event, payload) => {
+				if (event.type !== 'provider_auth_completed') return;
+				const status = (payload as { status?: ProviderAuthStatus }).status;
+				return status?.provider === 'openai-codex' ? status : undefined;
+			},
+			AUTH_EVENT_TIMEOUT_MS
+		);
+	}
+
+	async setProviderApiKey(provider: string, apiKey: string) {
+		const accepted = await this.native.setProviderApiKey(provider, apiKey);
+		this.assertAccepted(accepted);
+		return this.waitFor(
+			accepted.request_id,
+			(event, payload) => {
+				if (event.type !== 'provider_auth_completed') return;
+				const status = (payload as { status?: ProviderAuthStatus }).status;
+				return status?.provider === provider ? status : undefined;
+			},
+			AUTH_EVENT_TIMEOUT_MS
+		);
+	}
+
+	async clearProviderCredential(provider: string) {
+		const accepted = await this.native.clearProviderCredential(provider);
+		this.assertAccepted(accepted);
+		return this.waitFor(
+			accepted.request_id,
+			(event, payload) => {
+				if (event.type !== 'provider_auth_status') return;
+				const providers = (payload as { providers?: ProviderAuthStatus[] }).providers ?? [];
+				const status = providers.find((candidate) => candidate.provider === provider);
+				return status ? providers : undefined;
+			},
+			AUTH_EVENT_TIMEOUT_MS
+		);
+	}
+
+	async sendMessage(params: {
+		sessionId: string;
+		text: string;
+		tabContext?: BrainTabContext | null;
+		model?: BrainModelSelection | null;
+		permissionMode?: AgentPermissionMode;
+	}) {
+		const accepted = await this.native.sendMessage(
+			params.sessionId,
+			params.text,
+			params.tabContext ?? null,
+			params.model ?? null,
+			params.permissionMode ?? 'read'
+		);
+		this.assertAccepted(accepted);
+		await this.waitFor(accepted.request_id, (event) => {
+			if (event.type === 'assistant_done') return true;
+			if (event.type === 'error') return true;
+			return undefined;
+		});
+	}
+
+	cancelTurn(sessionId: string) {
+		return this.native.cancelTurn(sessionId);
+	}
+
+	async respondToUserPrompt(
+		sessionId: string,
+		toolCallId: string,
+		response: unknown,
+		cancelled = false
+	) {
+		const accepted = await this.native.respondToUserPrompt(
+			sessionId,
+			toolCallId,
+			response,
+			cancelled
+		);
+		this.assertAccepted(accepted);
+		return accepted;
+	}
+
+	private assertAccepted(result: BrainRequestResult) {
+		if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
+	}
+
+	private waitFor<T>(
+		requestId: string,
+		accept: (event: BrainConsoleEvent, payload: unknown) => T | undefined,
+		timeoutMs = DEFAULT_TIMEOUT_MS
+	) {
+		return new Promise<T>((resolve, reject) => {
+			const waiter: Waiter<T> = {
+				requestId,
+				accept,
+				resolve,
+				reject,
+				timer: setTimeout(() => {
+					this.waiters.delete(waiter as Waiter<unknown>);
+					reject(new Error(`Timed out waiting for brain request ${requestId}.`));
+				}, timeoutMs)
+			};
+			this.waiters.add(waiter as Waiter<unknown>);
+		});
+	}
+
+	private handleEvent(event: BrainConsoleEvent) {
+		const payload = parsePayload(event);
+		for (const listener of this.listeners) listener(event, payload);
+		for (const waiter of Array.from(this.waiters)) {
+			if (event.request_id !== waiter.requestId) continue;
+			const error = eventError(event, payload);
+			if (error) {
+				clearTimeout(waiter.timer);
+				this.waiters.delete(waiter);
+				waiter.reject(error);
+				continue;
+			}
+			const value = waiter.accept(event, payload);
+			if (value !== undefined) {
+				clearTimeout(waiter.timer);
+				this.waiters.delete(waiter);
+				waiter.resolve(value);
+			}
+		}
+	}
+}
+
+class FakeBrainConsole implements NativeBrainConsole {
+	private listeners = new Set<(event: BrainConsoleEvent) => void>();
+	private nextRequest = 1;
+	private sessions: BrainSessionInfo[] = [
+		this.sessionInfo('dev-session', 'New chat', new Date(Date.now() - 4 * 60 * 1000)),
+		this.sessionInfo('dev-repo', 'Repository size check', new Date(Date.now() - 2 * 60 * 60 * 1000)),
+		this.sessionInfo('dev-architecture', 'Agent architecture review', new Date(Date.now() - 26 * 60 * 60 * 1000))
+	];
+
+	addObserver(handler: (event: BrainConsoleEvent) => void) {
+		this.listeners.add(handler);
+		return () => this.listeners.delete(handler);
+	}
+
+	async initialize() {
+		const requestId = this.requestId();
+		this.emit(requestId, undefined, 'ready', {
+			brain_version: 'dev',
+			pie_commit: 'dev',
+			app_support_dir: '/tmp/stead-dev'
+		});
+		return this.accepted(requestId);
+	}
+
+	async createSession(title: string | null, _originSurface = 'webui') {
+		const requestId = this.requestId();
+		const session = this.sessionInfo(`dev-session-${this.nextRequest}`, title || 'New chat', new Date());
+		this.sessions = [session, ...this.sessions.filter((candidate) => candidate.id !== session.id)];
+		this.emit(requestId, this.sessionId, 'session_created', {
+			session
+		});
+		return this.accepted(requestId);
+	}
+
+	async listSessions() {
+		const requestId = this.requestId();
+		this.emit(requestId, undefined, 'sessions', { sessions: this.sessions });
+		return this.accepted(requestId);
+	}
+
+	async loadSession(sessionId: string) {
+		const requestId = this.requestId();
+		const session =
+			this.sessions.find((candidate) => candidate.id === sessionId) ??
+			this.sessionInfo(sessionId, 'Loaded chat', new Date());
+		this.emit(requestId, sessionId, 'session_loaded', {
+			session
+		});
+		return this.accepted(requestId);
+	}
+
+	async sendMessage(
+		sessionId: string,
+		text: string,
+		_tabContext?: BrainTabContext | null,
+		_model?: BrainModelSelection | null,
+		permissionMode: AgentPermissionMode = 'read'
+	) {
+		const requestId = this.requestId();
+		queueMicrotask(async () => {
+			const response = `Dev brain bridge is active (${permissionMode}). Native Chromium wiring will stream the real Pie turn for: ${text}`;
+			for (const token of response.split(/(\s+)/)) {
+				this.emit(requestId, sessionId, 'assistant_delta', { text: token });
+				await new Promise((resolve) => setTimeout(resolve, 12));
+			}
+			this.emit(requestId, sessionId, 'assistant_done', { stop_reason: 'dev_fake' });
+		});
+		return this.accepted(requestId);
+	}
+
+	async cancelTurn(sessionId: string) {
+		const requestId = this.requestId();
+		this.emit(requestId, sessionId, 'assistant_done', { stop_reason: 'cancelled' });
+		return this.accepted(requestId);
+	}
+
+	async listProviderAuth() {
+		const requestId = this.requestId();
+		this.emit(requestId, undefined, 'provider_auth_status', {
+			providers: [
+				{ provider: 'anthropic', configured: false, needs_refresh: false },
+				{ provider: 'openai-codex', configured: false, needs_refresh: false },
+				{ provider: 'openai', configured: false, needs_refresh: false },
+				{ provider: 'google', configured: false, needs_refresh: false }
+			]
+		});
+		return this.accepted(requestId);
+	}
+
+	async listModels() {
+		const requestId = this.requestId();
+		this.emit(requestId, undefined, 'model_catalog', {
+			providers: DEV_MODEL_CATALOG
+		});
+		return this.accepted(requestId);
+	}
+
+	async startProviderOAuth(provider: string) {
+		const requestId = this.requestId();
+		this.emit(requestId, undefined, 'provider_auth_url', {
+			provider,
+			url: 'about:blank',
+			expires_in_secs: 300
+		});
+		return this.accepted(requestId);
+	}
+
+	async importCodexAuth() {
+		const requestId = this.requestId();
+		this.emit(requestId, undefined, 'provider_auth_completed', {
+			status: { provider: 'openai-codex', configured: false, needs_refresh: false }
+		});
+		return this.accepted(requestId);
+	}
+
+	async clearProviderCredential(provider: string) {
+		const requestId = this.requestId();
+		this.emit(requestId, undefined, 'provider_auth_status', {
+			providers: [{ provider, configured: false, needs_refresh: false }]
+		});
+		return this.accepted(requestId);
+	}
+
+	async setProviderApiKey(provider: string) {
+		const requestId = this.requestId();
+		this.emit(requestId, undefined, 'provider_auth_completed', {
+			status: { provider, configured: true, credential_kind: 'api_key', needs_refresh: false }
+		});
+		return this.accepted(requestId);
+	}
+
+	async respondToUserPrompt() {
+		return this.accepted(this.requestId());
+	}
+
+	async shutdownBrain() {
+		return this.accepted(this.requestId());
+	}
+
+	private requestId() {
+		return `ui_dev_${this.nextRequest++}`;
+	}
+
+	private get sessionId() {
+		return this.sessions[0]?.id ?? 'dev-session';
+	}
+
+	private sessionInfo(id: string, title: string, date: Date): BrainSessionInfo {
+		return {
+			id,
+			title,
+			created_at: date.toISOString(),
+			updated_at: date.toISOString(),
+			path: `/tmp/stead-dev/sessions/${id}`
+		};
+	}
+
+	private accepted(requestId: string): BrainRequestResult {
+		return { ok: true, request_id: requestId, code: 'accepted', message: 'accepted' };
+	}
+
+	private emit(requestId: string, sessionId: string | undefined, type: string, payload: unknown) {
+		const payloadObject =
+			payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+		const event: BrainConsoleEvent = {
+			type,
+			request_id: requestId,
+			session_id: sessionId,
+			payload_json: JSON.stringify({
+				type,
+				request_id: requestId,
+				session_id: sessionId,
+				...payloadObject
+			})
+		};
+		for (const listener of this.listeners) listener(event);
+	}
+}
+
+const fakeBrainConsole = new FakeBrainConsole();
+const lazyNativeBrainConsole = new LazyNativeBrainConsole();
+let bridge: BrainBridge | undefined;
+
+export function getBrainBridge() {
+	if (!bridge) {
+		const native =
+			globalThis.window?.steadBrain ??
+			(globalThis.window?.location.protocol === 'chrome:' ? lazyNativeBrainConsole : fakeBrainConsole);
+		bridge = new BrainBridge(native);
+	}
+	return bridge;
+}

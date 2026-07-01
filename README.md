@@ -1,46 +1,42 @@
-# Stead UI
+# sv
 
-The user interface for **Stead** — a performance-first agentic web browser built
-as a Chromium fork. This is a SvelteKit app that's compiled to static assets and
-served as native Chromium **WebUI** surfaces inside the browser (no extension, no
-content scripts, no external daemon).
+Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
 
-This repo is the **source**. The built bundle is vendored into the browser repo
-([judekim0507/stead](https://github.com/judekim0507/stead)) under
-`resources/stead/sidebar/`.
+## Creating a project
 
-## Surfaces
-
-One app, several routes — each wired into the browser as its own WebUI surface:
-
-| Route          | In the browser                          |
-| -------------- | --------------------------------------- |
-| `/ai-sidebar`  | the **Ask Stead** side panel            |
-| `/ai-chat`     | the full-page chat (`stead://chat`)     |
-| `/new-tab`     | the **new tab page** (prerendered for instant paint) |
-
-## Develop
+If you're seeing this, you've probably already done this step. Congrats!
 
 ```sh
-bun install
-bun dev          # iterate in any browser at localhost — instant, no Chromium build
-bun run build    # static build → ./build (adapter-static, SPA + prerendered /new-tab)
+# create a new project
+npx sv create my-app
 ```
 
-To get changes into the actual Stead browser, run the sync script in the browser
-repo (`resources/stead/sync_sidebar_ui.sh`), which rebuilds this app and vendors
-the bundle in. See the browser repo's `DEVELOPMENT.md` for the full workflow.
+To recreate this project with the same configuration:
 
-## Stack
+```sh
+# recreate this project
+bun x sv@0.16.1 create --template minimal --types ts --add tailwindcss="plugins:none" --install bun .
+```
 
-Svelte 5 (runes) · SvelteKit · Tailwind CSS v4 · `shadcn-svelte` components ·
-`bits-ui` · `lucide` icons · Inter (`@fontsource-variable/inter`).
+## Developing
 
-## License
+Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
 
-Stead UI is licensed under the **GNU General Public License v3.0** — see
-[LICENSE](LICENSE). It's part of the open-source Stead client, matching the
-browser's GPL-3.0 license.
+```sh
+npm run dev
 
-UI primitives under `src/lib/components/ui/` are generated from
-[shadcn-svelte](https://shadcn-svelte.com) (MIT), which is GPL-compatible.
+# or start the server and open the app in a new browser tab
+npm run dev -- --open
+```
+
+## Building
+
+To create a production version of your app:
+
+```sh
+npm run build
+```
+
+You can preview the production build with `npm run preview`.
+
+> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.

@@ -1,23 +1,65 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
+	import { getBrainBridge, type BrainSessionInfo } from '$lib/brain/bridge';
 	import BorderBeam from '$lib/components/BorderBeam.svelte';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 
 	let query = $state('');
 	let mode = $state<'search' | 'ask'>('search');
 	let beamSignal = $state(0);
+	let sessions = $state<BrainSessionInfo[]>([]);
+	let loadingSessions = $state(false);
 
-	const recentChats = [
-		{ title: 'Repository size check', time: '4m', unread: true },
-		{ title: 'Finding bookmarked React glow effect library', time: '4m', unread: true },
-		{ title: 'Project context inquiry', time: '2h', unread: false },
-		{ title: 'Polar vs Stripe ease of use', time: 'Yesterday', unread: false }
-	];
+	const brain = getBrainBridge();
+	const recentChats = $derived(sessions.slice(0, 5));
+
+	function chatUrl(params: Record<string, string>) {
+		const search = new URLSearchParams(params);
+		return `/ai-chat?${search.toString()}`;
+	}
+
+	function searchUrl(value: string) {
+		if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return value;
+		if (/^[^\s]+\.[^\s]+$/.test(value)) return `https://${value}`;
+		return `https://www.google.com/search?q=${encodeURIComponent(value)}`;
+	}
+
+	function relativeTime(value: string) {
+		const date = new Date(value);
+		const delta = Date.now() - date.getTime();
+		if (!Number.isFinite(delta)) return '';
+		const minute = 60 * 1000;
+		const hour = 60 * minute;
+		const day = 24 * hour;
+		if (delta < hour) return `${Math.max(1, Math.round(delta / minute))}m`;
+		if (delta < day) return `${Math.round(delta / hour)}h`;
+		if (delta < 2 * day) return 'Yesterday';
+		return `${Math.round(delta / day)}d`;
+	}
+
+	onMount(() => {
+		void (async () => {
+			loadingSessions = true;
+			try {
+				await brain.initialize();
+				sessions = await brain.listSessions();
+			} finally {
+				loadingSessions = false;
+			}
+		})();
+	});
 
 	function submit() {
 		const q = query.trim();
 		if (!q && mode === 'search') return;
+		if (mode === 'search') {
+			window.location.href = searchUrl(q);
+			return;
+		}
+		if (!q) return;
 		beamSignal += 1;
+		window.location.href = chatUrl({ prompt: q });
 	}
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key === 'Tab') {
@@ -86,25 +128,28 @@
 				<span class="text-muted-foreground text-xs font-medium">Recent chats</span>
 				<button
 					type="button"
+					onclick={() => (window.location.href = '/ai-chat')}
 					class="text-muted-foreground hover:text-foreground flex items-center gap-0.5 text-xs font-medium transition-colors"
 				>
 					All chats <ChevronRightIcon class="size-3.5" />
 				</button>
 			</div>
-			{#each recentChats as c (c.title)}
+			{#if loadingSessions && !recentChats.length}
+				<div class="text-muted-foreground px-4 py-2.5 text-sm">Loading sessions</div>
+			{/if}
+			{#each recentChats as c (c.id)}
 				<button
 					type="button"
+					onclick={() => (window.location.href = chatUrl({ session: c.id }))}
 					class="group flex w-full items-center justify-between gap-3 rounded-xl px-4 py-2.5 text-left transition-colors hover:bg-white/[0.04]"
 				>
 					<span class="flex min-w-0 items-center gap-3">
-						<span
-							class="size-1.5 shrink-0 rounded-full {c.unread ? 'bg-indigo-300' : 'bg-transparent'}"
-						></span>
+						<span class="size-1.5 shrink-0 rounded-full bg-indigo-300"></span>
 						<span class="text-foreground/85 group-hover:text-foreground truncate text-sm transition-colors"
 							>{c.title}</span
 						>
 					</span>
-					<span class="text-muted-foreground shrink-0 text-xs">{c.time}</span>
+					<span class="text-muted-foreground shrink-0 text-xs">{relativeTime(c.updated_at)}</span>
 				</button>
 			{/each}
 		</div>

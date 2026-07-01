@@ -10,33 +10,18 @@
 	type Props = {
 		current?: string;
 		groups?: Group[];
+		loading?: boolean;
 		onNew?: () => void;
 		onSelect?: (id: string) => void;
 	};
 
-	const defaultGroups: Group[] = [
-		{
-			label: 'Today',
-			sessions: [
-				{ id: '1', title: 'New conversation greeting', unread: true },
-				{ id: '2', title: 'Repository size check', unread: true },
-				{ id: '3', title: 'Replacing React Chrome extension provider', unread: true }
-			]
-		},
-		{
-			label: 'Yesterday',
-			sessions: [
-				{ id: '4', title: 'Aside project requirements review' },
-				{ id: '5', title: 'Polar vs Stripe ease of use' }
-			]
-		},
-		{
-			label: 'Previous 7 days',
-			sessions: [{ id: '6', title: 'Mac price increase and cheap deal catch' }]
-		}
-	];
-
-	let { current = 'New Session', groups = defaultGroups, onNew, onSelect }: Props = $props();
+	let {
+		current = 'New Session',
+		groups = [],
+		loading = false,
+		onNew,
+		onSelect
+	}: Props = $props();
 
 	let open = $state(false);
 </script>
@@ -72,22 +57,28 @@
 
 		<DropdownMenu.Separator />
 
-		{#each groups as group (group.label)}
-			<DropdownMenu.Group>
-				<DropdownMenu.GroupHeading
-					class="text-muted-foreground px-2 pt-1.5 pb-1 text-xs font-medium"
-				>
-					{group.label}
-				</DropdownMenu.GroupHeading>
-				{#each group.sessions as s (s.id)}
-					<DropdownMenu.Item onSelect={() => onSelect?.(s.id)} class="gap-2">
-						<span class="min-w-0 flex-1 truncate">{s.title}</span>
-						{#if s.unread}
-							<span class="size-1.5 shrink-0 rounded-full bg-[#3b9eff]"></span>
-						{/if}
-					</DropdownMenu.Item>
-				{/each}
-			</DropdownMenu.Group>
-		{/each}
+		{#if loading}
+			<DropdownMenu.Item class="text-muted-foreground">Loading sessions</DropdownMenu.Item>
+		{:else if groups.length}
+			{#each groups as group (group.label)}
+				<DropdownMenu.Group>
+					<DropdownMenu.GroupHeading
+						class="text-muted-foreground px-2 pt-1.5 pb-1 text-xs font-medium"
+					>
+						{group.label}
+					</DropdownMenu.GroupHeading>
+					{#each group.sessions as s (s.id)}
+						<DropdownMenu.Item onSelect={() => onSelect?.(s.id)} class="gap-2">
+							<span class="min-w-0 flex-1 truncate">{s.title}</span>
+							{#if s.unread}
+								<span class="size-1.5 shrink-0 rounded-full bg-[#3b9eff]"></span>
+							{/if}
+						</DropdownMenu.Item>
+					{/each}
+				</DropdownMenu.Group>
+			{/each}
+		{:else}
+			<DropdownMenu.Item class="text-muted-foreground">No sessions</DropdownMenu.Item>
+		{/if}
 	</DropdownMenu.Content>
 </DropdownMenu.Root>

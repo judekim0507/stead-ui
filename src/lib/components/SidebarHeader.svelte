@@ -1,11 +1,16 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index.js';
+	import type { BrainTabContext } from '$lib/brain/bridge';
 	import XIcon from '@lucide/svelte/icons/x';
 	import SessionSelector from './SessionSelector.svelte';
+	import ControlConsole from './ControlConsole.svelte';
 
 	type Props = {
 		title?: string;
 		current?: string;
+		groups?: Array<{ label: string; sessions: Array<{ id: string; title: string; unread?: boolean }> }>;
+		loading?: boolean;
+		currentTab?: BrainTabContext | null;
 		onClose?: () => void;
 		onNew?: () => void;
 		onSelect?: (id: string) => void;
@@ -14,6 +19,9 @@
 	let {
 		title = 'Ask Browser',
 		current = 'New Session',
+		groups = [],
+		loading = false,
+		currentTab = null,
 		onClose,
 		onNew,
 		onSelect
@@ -36,5 +44,8 @@
 	</div>
 
 	<!-- Right: session selector -->
-	<SessionSelector {current} {onNew} {onSelect} />
+	<div class="flex shrink-0 items-center gap-1">
+		<ControlConsole tabId={currentTab?.tab_id} />
+		<SessionSelector {current} {groups} {loading} {onNew} {onSelect} />
+	</div>
 </header>

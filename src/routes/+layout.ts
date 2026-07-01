@@ -1,5 +1,4 @@
-// Stead WebUI is a pure client-side SPA hosted in a native side panel.
-// No server, no prerender — the adapter-static fallback shell boots the
-// client router, which renders whichever route the side panel opened.
+// Pure client-side SPA by default: no SSR, no prerender. Individual routes can
+// opt back in (see /new-tab, which is prerendered for instant first paint).
 export const ssr = false;
 export const prerender = false;

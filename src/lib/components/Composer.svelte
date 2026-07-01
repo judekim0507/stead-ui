@@ -3,6 +3,8 @@
 	import { fly, scale, slide } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
 	import { motionEase } from '$lib/motion';
+	import type { ContextRef } from '$lib/chat';
+	import type { BrainTabContext } from '$lib/brain/bridge';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import BorderBeam from './BorderBeam.svelte';
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -24,6 +26,8 @@
 		title: string;
 		sublabel?: string;
 		favicon?: string;
+		tab_id?: number;
+		url?: string;
 		kind: 'tab' | 'file';
 	};
 
@@ -31,12 +35,13 @@
 		contextTitle?: string;
 		contextUrl?: string;
 		contextFavicon?: string;
+		currentTab?: BrainTabContext | null;
 		placeholder?: string;
 		mentionGroups?: MentionGroup[];
 		streaming?: boolean;
 		queued?: string[];
 		showContext?: boolean;
-		onSend?: (value: string, context: { title: string; sublabel?: string; favicon?: string }[]) => void;
+		onSend?: (value: string, context: ContextRef[]) => void;
 		onStop?: () => void;
 		onRemoveQueued?: (index: number) => void;
 	};
@@ -68,6 +73,7 @@
 		contextTitle = 'Ask Browser',
 		contextUrl = 'localhost',
 		contextFavicon = favicon,
+		currentTab = null,
 		placeholder = 'Ask or do anything…',
 		mentionGroups = defaultMentionGroups,
 		streaming = false,
@@ -88,13 +94,34 @@
 	let showStop = $derived(streaming && !canSend);
 	let beamSignal = $state(0);
 
+	function currentTabContextItem(): ContextItem | null {
+		if (!showContext) return null;
+		if (currentTab) {
+			return {
+				id: `tab-${currentTab.tab_id}`,
+				title: currentTab.title || contextTitle,
+				sublabel: currentTab.url || contextUrl,
+				favicon: contextFavicon,
+				tab_id: currentTab.tab_id,
+				url: currentTab.url,
+				kind: 'tab'
+			};
+		}
+		return {
+			id: 'current-tab',
+			title: contextTitle,
+			sublabel: contextUrl,
+			favicon: contextFavicon,
+			kind: 'tab'
+		};
+	}
+
 	// Context chips — current tab first, then any mentioned tabs / uploaded files.
 	let contextItems = $state<ContextItem[]>(
-		untrack(() =>
-			showContext
-				? [{ id: 't1', title: contextTitle, sublabel: contextUrl, favicon: contextFavicon, kind: 'tab' }]
-				: []
-		)
+		untrack(() => {
+			const item = currentTabContextItem();
+			return item ? [item] : [];
+		})
 	);
 
 	function addContextItem(item: ContextItem) {
@@ -267,7 +294,9 @@
 		const context = contextItems.map((c) => ({
 			title: c.title,
 			sublabel: c.sublabel,
-			favicon: c.favicon
+			favicon: c.favicon,
+			tab_id: c.tab_id,
+			url: c.url
 		}));
 		onSend?.(value.trim(), context);
 		if (!wasStreaming) beamSignal += 1; // beam a fresh send; queued messages don't beam
@@ -431,7 +460,7 @@
 	{/if}
 
 	<!-- Input row -->
-	<div class="flex items-end gap-2 px-1">
+	<div class="flex min-w-0 items-end gap-2 px-1">
 		<Button
 			variant="ghost"
 			size="icon"
@@ -443,7 +472,7 @@
 		</Button>
 		<input bind:this={fileInput} type="file" multiple class="hidden" onchange={onFilesChosen} />
 
-		<div class="relative min-w-0 flex-1 self-center">
+		<div class="relative min-w-0 flex-1 basis-0 self-center overflow-hidden">
 			<!-- highlight layer (mirrors the textarea, colors mentions) -->
 			<div
 				bind:this={mirror}
@@ -465,8 +494,9 @@
 				onkeydown={onKeydown}
 				onblur={() => (mentionOpen = false)}
 				rows="1"
+				cols="1"
 				{placeholder}
-				class="placeholder:text-muted-foreground scrollbar-none relative block max-h-40 w-full resize-none bg-transparent py-1.5 text-sm leading-snug break-words whitespace-pre-wrap text-transparent caret-white outline-none"
+				class="placeholder:text-muted-foreground scrollbar-none relative block max-h-40 w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-snug break-words whitespace-pre-wrap text-transparent caret-white outline-none"
 			></textarea>
 		</div>
 
