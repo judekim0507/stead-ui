@@ -29,16 +29,25 @@ export type ControlConfirmation = {
 	reason: string;
 };
 
+export type ControlTabContext = {
+	tab_id: number;
+	url: string;
+	title: string;
+};
+
 export type ControlConsoleEvent =
 	| { type: 'audit'; entry: ControlAuditEntry }
 	| { type: 'confirmation'; request: ControlConfirmation }
-	| { type: 'cancelled'; tab_id: number };
+	| { type: 'cancelled'; tab_id: number }
+	| { type: 'driving_changed'; tab_id: number; driving: boolean };
 
 export type NativeControlConsole = {
 	addObserver(handler: (event: ControlConsoleEvent) => void): () => void;
 	getAuditLog(maxEntries?: number): Promise<ControlAuditEntry[]>;
 	respondToConfirmation(actionId: number, approve: boolean): Promise<void>;
 	cancel(tabId: number): Promise<void>;
+	/** Active tab of the profile's focused window, or null (non-web pages). */
+	getActiveTabContext(): Promise<ControlTabContext | null>;
 };
 
 declare global {
@@ -72,12 +81,20 @@ type RawConfirmation = {
 	reason?: string;
 };
 
+type RawTabContext = {
+	tabId?: number;
+	tab_id?: number;
+	url?: string;
+	title?: string;
+};
+
 type MojoControlRemote = {
 	$: { bindNewPipeAndPassReceiver(): unknown };
 	addObserver(remote: unknown): void;
 	getAuditLog(maxEntries: number): Promise<{ entries?: RawAuditEntry[] }>;
 	respondToConfirmation(actionId: number, approve: boolean): Promise<void> | void;
 	cancel(tabId: number): Promise<void> | void;
+	getActiveTabContext?(): Promise<{ context?: RawTabContext | null }>;
 };
 
 type MojoControlModule = {
@@ -86,6 +103,7 @@ type MojoControlModule = {
 		onAuditEntry(entry: RawAuditEntry): void;
 		onConfirmation(request: RawConfirmation): void;
 		onCancelled(tabId: number): void;
+		onDrivingStateChanged(tabId: number, driving: boolean): void;
 	}) => {
 		$: { bindNewPipeAndPassRemote(): unknown };
 	};
@@ -170,6 +188,17 @@ function normalizeConfirmation(request: RawConfirmation): ControlConfirmation {
 	};
 }
 
+function normalizeTabContext(context: RawTabContext | null | undefined): ControlTabContext | null {
+	if (!context) return null;
+	const tabId = context.tab_id ?? context.tabId;
+	if (typeof tabId !== 'number' || !Number.isFinite(tabId)) return null;
+	return {
+		tab_id: tabId,
+		url: context.url ?? '',
+		title: context.title ?? ''
+	};
+}
+
 class MojoControlConsole implements NativeControlConsole {
 	private listeners = new Set<(event: ControlConsoleEvent) => void>();
 	private observerReceiver: InstanceType<MojoControlModule['ConsoleObserverReceiver']>;
@@ -182,7 +211,9 @@ class MojoControlConsole implements NativeControlConsole {
 			onAuditEntry: (entry) => this.emit({ type: 'audit', entry: normalizeAudit(entry) }),
 			onConfirmation: (request) =>
 				this.emit({ type: 'confirmation', request: normalizeConfirmation(request) }),
-			onCancelled: (tab_id) => this.emit({ type: 'cancelled', tab_id })
+			onCancelled: (tab_id) => this.emit({ type: 'cancelled', tab_id }),
+			onDrivingStateChanged: (tab_id, driving) =>
+				this.emit({ type: 'driving_changed', tab_id, driving })
 		});
 		this.remote.addObserver(this.observerReceiver.$.bindNewPipeAndPassRemote());
 	}
@@ -203,6 +234,17 @@ class MojoControlConsole implements NativeControlConsole {
 
 	async cancel(tabId: number) {
 		await this.remote.cancel(tabId);
+	}
+
+	async getActiveTabContext() {
+		// Tolerate an older native surface without GetActiveTabContext.
+		if (!this.remote.getActiveTabContext) return null;
+		try {
+			const response = await this.remote.getActiveTabContext();
+			return normalizeTabContext(response.context);
+		} catch {
+			return null;
+		}
 	}
 
 	private emit(event: ControlConsoleEvent) {
@@ -241,6 +283,10 @@ class LazyNativeControlConsole implements NativeControlConsole {
 	async cancel(tabId: number) {
 		return (await this.nativePromise).cancel(tabId);
 	}
+
+	async getActiveTabContext() {
+		return (await this.nativePromise).getActiveTabContext();
+	}
 }
 
 class FakeControlConsole implements NativeControlConsole {
@@ -272,7 +318,12 @@ class FakeControlConsole implements NativeControlConsole {
 	}
 
 	async cancel(tabId: number) {
+		this.emit({ type: 'driving_changed', tab_id: tabId, driving: false });
 		this.emit({ type: 'cancelled', tab_id: tabId });
+	}
+
+	async getActiveTabContext() {
+		return null;
 	}
 
 	private emit(event: ControlConsoleEvent) {

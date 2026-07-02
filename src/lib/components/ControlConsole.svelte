@@ -1,13 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { fly, scale } from 'svelte/transition';
 	import { motionEase } from '$lib/motion';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import {
-		getControlConsoleBridge,
-		type ControlAuditEntry,
-		type ControlConfirmation
-	} from '$lib/brain/controlConsole';
+	import { getControlState } from '$lib/controlState.svelte';
+	import type { ControlConfirmation } from '$lib/brain/controlConsole';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import ShieldAlertIcon from '@lucide/svelte/icons/shield-alert';
 	import CheckIcon from '@lucide/svelte/icons/check';
@@ -22,17 +18,18 @@
 
 	let { tabId = null, align = 'right' }: Props = $props();
 
-	const consoleBridge = getControlConsoleBridge();
+	const control = getControlState();
 	let open = $state(false);
-	let pending = $state<ControlConfirmation[]>([]);
-	let audit = $state<ControlAuditEntry[]>([]);
 	let busyAction = $state<number | null>(null);
 	let cancelling = $state(false);
-	let lastCancelled = $state<number | null>(null);
 
-	const hasPending = $derived(pending.length > 0);
+	const hasPending = $derived(control.pending.length > 0);
 	const cancelTabId = $derived(
-		tabId ?? pending[0]?.tab_id ?? audit.find((entry) => entry.tab_id > 0)?.tab_id ?? null
+		tabId ??
+			control.drivingTabIds[0] ??
+			control.pending[0]?.tab_id ??
+			control.audit.find((entry) => entry.tab_id > 0)?.tab_id ??
+			null
 	);
 	const popoverSide = $derived(align === 'right' ? 'right-0' : 'left-0');
 
@@ -40,27 +37,10 @@
 		return value.replaceAll('_', ' ');
 	}
 
-	function upsertPending(request: ControlConfirmation) {
-		pending = [
-			request,
-			...pending.filter((candidate) => candidate.action_id !== request.action_id)
-		].slice(0, 8);
-		open = true;
-	}
-
-	function addAudit(entry: ControlAuditEntry) {
-		audit = [entry, ...audit.filter((candidate) => candidate.action_id !== entry.action_id)].slice(
-			0,
-			30
-		);
-		pending = pending.filter((candidate) => candidate.action_id !== entry.action_id);
-	}
-
 	async function respond(request: ControlConfirmation, approve: boolean) {
 		busyAction = request.action_id;
 		try {
-			await consoleBridge.respondToConfirmation(request.action_id, approve);
-			pending = pending.filter((candidate) => candidate.action_id !== request.action_id);
+			await control.respond(request, approve);
 		} finally {
 			busyAction = null;
 		}
@@ -70,32 +50,11 @@
 		if (!cancelTabId) return;
 		cancelling = true;
 		try {
-			await consoleBridge.cancel(cancelTabId);
-			lastCancelled = cancelTabId;
+			await control.cancel(cancelTabId);
 		} finally {
 			cancelling = false;
 		}
 	}
-
-	onMount(() => {
-		let active = true;
-		void consoleBridge.getAuditLog(30).then((entries) => {
-			if (active) audit = entries;
-		});
-		const unsubscribe = consoleBridge.addObserver((event) => {
-			if (event.type === 'confirmation') {
-				upsertPending(event.request);
-			} else if (event.type === 'audit') {
-				addAudit(event.entry);
-			} else if (event.type === 'cancelled') {
-				lastCancelled = event.tab_id;
-			}
-		});
-		return () => {
-			active = false;
-			unsubscribe();
-		};
-	});
 </script>
 
 <div class="relative">
@@ -112,6 +71,12 @@
 			<span
 				in:scale={{ duration: 140, easing: motionEase }}
 				class="absolute top-1 right-1 size-1.5 rounded-full bg-amber-300"
+			></span>
+		{:else if control.anyDriving}
+			<ShieldCheckIcon class="size-[18px] text-cyan-300" />
+			<span
+				in:scale={{ duration: 140, easing: motionEase }}
+				class="absolute top-1 right-1 size-1.5 rounded-full bg-cyan-300"
 			></span>
 		{:else}
 			<ShieldCheckIcon class="size-[18px]" />
@@ -140,9 +105,9 @@
 			</div>
 
 			<div class="flex max-h-[26rem] flex-col overflow-y-auto p-2">
-				{#if pending.length}
+				{#if control.pending.length}
 					<div class="flex flex-col gap-1.5">
-						{#each pending as request (request.action_id)}
+						{#each control.pending as request (request.action_id)}
 							<div class="rounded-xl bg-amber-300/[0.08] p-2 ring-1 ring-amber-300/[0.14]">
 								<div class="flex items-start gap-2">
 									<ShieldAlertIcon class="mt-0.5 size-4 shrink-0 text-amber-300" />
@@ -194,13 +159,15 @@
 					</Button>
 				</div>
 
-				{#if lastCancelled}
-					<p class="text-muted-foreground px-1 pt-1 text-xs">Cancelled tab {lastCancelled}</p>
+				{#if control.lastCancelled}
+					<p class="text-muted-foreground px-1 pt-1 text-xs">
+						Cancelled tab {control.lastCancelled}
+					</p>
 				{/if}
 
-				{#if audit.length}
+				{#if control.audit.length}
 					<div class="mt-1 flex flex-col">
-						{#each audit as entry (`${entry.sequence}-${entry.action_id}`)}
+						{#each control.audit as entry (`${entry.sequence}-${entry.action_id}`)}
 							<div class="flex items-start gap-2 rounded-lg px-1 py-1.5">
 								<span
 									class="mt-1 size-1.5 shrink-0 rounded-full {entry.ok
@@ -221,7 +188,7 @@
 							</div>
 						{/each}
 					</div>
-				{:else if !pending.length}
+				{:else if !control.pending.length}
 					<p class="text-muted-foreground px-1 py-4 text-center text-sm">No agent actions yet</p>
 				{/if}
 			</div>
