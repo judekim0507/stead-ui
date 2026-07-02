@@ -64,8 +64,20 @@
 {/snippet}
 
 {#snippet word(tok: Token)}
-	{#if tok.c}
+	{#if tok.href}
+		<a
+			in:wordIn
+			href={tok.href}
+			target="_blank"
+			rel="noopener noreferrer"
+			class="underline decoration-white/30 underline-offset-2 transition-colors hover:decoration-white/70 {tok.b
+				? 'font-semibold'
+				: ''}">{tok.word}</a
+		>
+	{:else if tok.c}
 		<code in:wordIn class="prose-code">{tok.word}</code>
+	{:else if tok.b && tok.i}
+		<span in:wordIn class="font-semibold italic">{tok.word}</span>
 	{:else if tok.b}
 		<span in:wordIn class="font-semibold">{tok.word}</span>
 	{:else if tok.i}
@@ -83,10 +95,28 @@
 			{#if bt.length}
 				{#if block.kind === 'li'}
 					<div class="relative flex gap-2.5 pl-1">
-						<span class="bg-muted-foreground mt-[0.62em] size-[5px] shrink-0 rounded-full"></span>
+						{#if block.ordinal != null}
+							<span class="text-muted-foreground min-w-[1.15rem] shrink-0 text-right tabular-nums"
+								>{block.ordinal}.</span
+							>
+						{:else}
+							<span class="bg-muted-foreground mt-[0.62em] size-[5px] shrink-0 rounded-full"></span>
+						{/if}
 						<div class="min-w-0 flex-1">
 							{#each bt as tok (tok.gi)}{@render word(tok)}{/each}
 						</div>
+					</div>
+				{:else if block.kind === 'h'}
+					<p class="mt-1.5 font-bold {(block.level ?? 3) <= 2 ? 'text-[17px]' : 'text-[15px]'}">
+						{#each bt as tok (tok.gi)}{@render word(tok)}{/each}
+					</p>
+				{:else if block.kind === 'code'}
+					<pre in:fade={{ duration: 200, easing: motionEase }} class="prose-pre"><code
+							>{bt.map((t) => t.word).join('')}</code
+						></pre>
+				{:else if block.kind === 'quote'}
+					<div class="text-muted-foreground border-l-2 border-white/15 pl-3">
+						{#each bt as tok (tok.gi)}{@render word(tok)}{/each}
 					</div>
 				{:else}
 					<p>{#each bt as tok (tok.gi)}{@render word(tok)}{/each}</p>

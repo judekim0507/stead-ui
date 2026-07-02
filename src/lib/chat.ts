@@ -1,7 +1,16 @@
-// Chat model + sample content for the streaming simulation.
+// Chat message model shared by the sidebar / full chat / new-tab surfaces.
 
-export type Run = { text: string; b?: boolean; c?: boolean; i?: boolean };
-export type Block = { kind: 'p' | 'li'; runs: Run[] };
+import { blocksFromMarkdown } from './markdown';
+
+export type Run = { text: string; b?: boolean; c?: boolean; i?: boolean; href?: string };
+export type Block = {
+	kind: 'p' | 'li' | 'h' | 'code' | 'quote';
+	runs: Run[];
+	/** heading depth for kind 'h' (1–6) */
+	level?: number;
+	/** ordered-list number for kind 'li'; bullet when absent */
+	ordinal?: number;
+};
 export type Token = {
 	gi: number;
 	blockIdx: number;
@@ -9,6 +18,7 @@ export type Token = {
 	b?: boolean;
 	c?: boolean;
 	i?: boolean;
+	href?: string;
 };
 
 export type StepKind = 'thought' | 'tab' | 'memory';
@@ -34,87 +44,36 @@ export type AssistantMessage = {
 };
 export type Message = UserMessage | AssistantMessage;
 
+// Assistant text is markdown (the brain streams plain markdown).
 export function blocksFromText(text: string): Block[] {
 	const trimmed = text.trimEnd();
 	if (!trimmed) return [];
-	return trimmed.split(/\n{2,}/).map((paragraph) => ({
-		kind: 'p',
-		runs: [{ text: paragraph }]
-	}));
+	return blocksFromMarkdown(trimmed);
 }
-
-export const STEP_SEQUENCE: Step[] = [
-	{
-		kind: 'thought',
-		label: "The message is almost empty, so I'll read intent from the open context instead of the words."
-	},
-	{ kind: 'tab', label: 'Listing open browser tabs' },
-	{
-		kind: 'thought',
-		label: "No live page is attached — I'll lean on what I already know about this project."
-	},
-	{ kind: 'memory', label: 'Searched memory for project context' },
-	{
-		kind: 'thought',
-		label: "Signals all point to an in-browser AI agent. I'll lay out the read."
-	}
-];
-
-export const ANSWER_BLOCKS: Block[] = [
-	{
-		kind: 'p',
-		runs: [
-			{ text: "From what's in front of me, you're building " },
-			{ text: 'Ask Browser', b: true },
-			{ text: " — an AI agent that lives in the browser sidebar and can act on the page you're looking at." }
-		]
-	},
-	{ kind: 'p', runs: [{ text: 'A few signals point that way:' }] },
-	{
-		kind: 'li',
-		runs: [
-			{ text: 'The composer pulls in the ' },
-			{ text: 'current tab', b: true },
-			{ text: ' as context, and lets you ' },
-			{ text: '@', c: true },
-			{ text: '-mention tabs, skills, and files.' }
-		]
-	},
-	{
-		kind: 'li',
-		runs: [
-			{ text: "There's a " },
-			{ text: 'permission selector', b: true },
-			{ text: " — so it's an agent that " },
-			{ text: 'takes actions', i: true },
-			{ text: ', not just a chatbot.' }
-		]
-	},
-	{
-		kind: 'li',
-		runs: [
-			{ text: 'Model and effort sit next to a ' },
-			{ text: 'Claude / Codex', b: true },
-			{ text: ' switch.' }
-		]
-	},
-	{
-		kind: 'p',
-		runs: [
-			{ text: 'Next step: wire these into a real agent loop, so ' },
-			{ text: 'summarize this page', c: true },
-			{ text: ' actually runs against the open tab.' }
-		]
-	}
-];
 
 export function buildTokens(blocks: Block[]): Token[] {
 	const tokens: Token[] = [];
 	let gi = 0;
 	blocks.forEach((block, blockIdx) => {
+		if (block.kind === 'code') {
+			// A code block reveals as one unit; splitting it word-by-word would
+			// mangle indentation mid-stream.
+			for (const run of block.runs) {
+				tokens.push({ gi: gi++, blockIdx, word: run.text });
+			}
+			return;
+		}
 		for (const run of block.runs) {
-			if (run.c) {
-				tokens.push({ gi: gi++, blockIdx, word: run.text, c: true });
+			if (run.c || run.href) {
+				tokens.push({
+					gi: gi++,
+					blockIdx,
+					word: run.text,
+					c: run.c,
+					b: run.b,
+					i: run.i,
+					href: run.href
+				});
 				continue;
 			}
 			// keep whitespace so spacing/punctuation survive; render tokens concatenated
