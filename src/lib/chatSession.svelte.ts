@@ -12,6 +12,7 @@ import {
 	type BrainConsoleEvent,
 	type BrainModelSelection,
 	type BrainSessionInfo,
+	type BrainSkillInfo,
 	type BrainTabContext
 } from './brain/bridge';
 import type { AgentTab, Artifact } from './components/SidePanel.svelte';
@@ -218,6 +219,7 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 	let artifacts = $state<Artifact[]>([]);
 	let agentTab = $state<AgentTab | null>(null);
 	let panelDismissed = $state(false);
+	let skills = $state<BrainSkillInfo[]>(brain.skills);
 
 	const hasPanelContent = $derived(artifacts.length > 0 || agentTab !== null);
 	const showPanel = $derived(hasPanelContent && !panelDismissed);
@@ -241,6 +243,12 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 	});
 
 	brain.subscribe((event, payload) => {
+		// The skill catalog rides the `ready` event, which arrives outside any
+		// turn (and is replayed to late-binding surfaces by the BrainBroker).
+		if (event.type === 'ready') {
+			skills = brain.skills;
+			return;
+		}
 		if (event.session_id && brainSessionId && event.session_id !== brainSessionId) return;
 		if (!activeAssistant) return;
 
@@ -277,6 +285,7 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 				void tick().then(pin);
 				return;
 			}
+			trackToolSideContent(payload);
 		}
 
 		if (event.type === 'tool_call' || event.type === 'tool_status') {
@@ -304,22 +313,49 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 		}
 	});
 
-	function deriveSideContent(text: string) {
-		const t = text.toLowerCase();
-		if (/\bopen\b|x\.com|\btab\b|\bpage\b|\blink\b|twitter|\bx\b/.test(t)) {
-			agentTab = {
-				title: 'Agent tab',
-				url: 'pending native browser context',
-				favicon: undefined
-			};
-			panelDismissed = false;
+	function hostnameOf(url: string) {
+		try {
+			return new URL(url).hostname || url;
+		} catch {
+			return url;
 		}
-		if (
-			/\bbuild\b|\bmake\b|\bcreate\b|\bfile\b|\bhtml\b|\bicon|\bcomponent\b|\bgenerate\b|\bwrite\b/.test(t)
-		) {
-			const name = 'session-artifact';
-			if (!artifacts.some((a) => a.name === name)) artifacts = [...artifacts, { name, kind: 'code' }];
-			panelDismissed = false;
+	}
+
+	// Side-panel cards come from real tool calls, not from guessing at the
+	// user's words: browser_open_tab / browser_navigate → agent-tab card,
+	// files_write into artifacts/ → artifact card.
+	function trackToolSideContent(payload: unknown) {
+		const record =
+			payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+		const name = typeof record.name === 'string' ? record.name : '';
+		const args =
+			record.arguments && typeof record.arguments === 'object'
+				? (record.arguments as Record<string, unknown>)
+				: {};
+		if (name === 'browser_open_tab' || name === 'browser_navigate') {
+			const url = typeof args.url === 'string' ? args.url : '';
+			if (url) {
+				agentTab = { title: hostnameOf(url), url };
+				panelDismissed = false;
+			}
+			return;
+		}
+		if (name === 'browser_close_tab') {
+			agentTab = null;
+			return;
+		}
+		if (name === 'files_write') {
+			const path = typeof args.path === 'string' ? args.path : '';
+			if (path.startsWith('artifacts/')) {
+				const base = path.slice('artifacts/'.length);
+				const kind: Artifact['kind'] = /\.(md|txt|rtf|doc|docx|pdf)$/i.test(base)
+					? 'doc'
+					: 'code';
+				if (!artifacts.some((a) => a.name === base)) {
+					artifacts = [...artifacts, { name: base, kind }];
+				}
+				panelDismissed = false;
+			}
 		}
 	}
 
@@ -358,7 +394,6 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 		messages.push(assistant);
 		activeAssistant = assistant;
 		activeText = '';
-		deriveSideContent(text);
 		await tick();
 		pin();
 
@@ -438,6 +473,9 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 		},
 		get questionActive() {
 			return questionActive;
+		},
+		get skills() {
+			return skills;
 		},
 		get sessions() {
 			return sessions;

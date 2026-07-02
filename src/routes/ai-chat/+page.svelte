@@ -10,6 +10,7 @@
 	import { createChatSession } from '$lib/chatSession.svelte';
 	import Conversation from '$lib/components/Conversation.svelte';
 	import Composer from '$lib/components/Composer.svelte';
+	import PermissionBar from '$lib/components/PermissionBar.svelte';
 	import QuestionTool from '$lib/components/QuestionTool.svelte';
 	import PermissionSelect from '$lib/components/PermissionSelect.svelte';
 	import ModelControls from '$lib/components/ModelControls.svelte';
@@ -127,6 +128,9 @@
 			</main>
 			<!-- The question tool REPLACES the reply bar while it's active -->
 			<div class="mx-auto w-full px-4 pb-1" style="max-width: 720px;">
+				<div class="pb-2 empty:hidden">
+					<PermissionBar />
+				</div>
 				{#if chat.questionActive}
 					<div transition:fly={{ y: 12, duration: 260, easing: motionEase }}>
 						<QuestionTool
@@ -141,6 +145,7 @@
 							placeholder="Reply, @ for context"
 							showContext={false}
 							currentTab={currentTab}
+							skills={chat.skills}
 							streaming={chat.streaming}
 							onSend={(text, context) =>
 								chat.handleSend(text, context, {

@@ -70,6 +70,12 @@ export type BrainTabContext = {
 	title: string;
 };
 
+export type BrainSkillInfo = {
+	name: string;
+	description: string;
+	source: 'builtin' | 'user' | string;
+};
+
 export type NativeBrainConsole = {
 	addObserver(handler: (event: BrainConsoleEvent) => void): () => void;
 	initialize(): Promise<BrainRequestResult>;
@@ -180,6 +186,8 @@ type ChromeTabsApi = {
 		callback: (tabs: Array<{ id?: number; url?: string; title?: string }>) => void
 	): void;
 };
+
+import { getControlConsoleBridge } from './controlConsole';
 
 type Waiter<T> = {
 	requestId: string;
@@ -369,6 +377,14 @@ export async function getCurrentTabContext(): Promise<BrainTabContext | null> {
 	}
 	const provided = normalizeTabContext(provider);
 	if (provided) return provided;
+	// Native path: the ControlConsole knows the active tab of this profile's
+	// focused window (null for non-web pages and outside chrome://).
+	try {
+		const context = await getControlConsoleBridge().getActiveTabContext();
+		if (context) return { tab_id: context.tab_id, url: context.url, title: context.title };
+	} catch {
+		// fall through to the extension-style API if it exists
+	}
 	return tabContextFromChromeTabs();
 }
 
@@ -626,10 +642,16 @@ class BrainBridge {
 	readonly isNative: boolean;
 	private listeners = new Set<(event: BrainConsoleEvent, payload: unknown) => void>();
 	private waiters = new Set<Waiter<unknown>>();
+	private cachedSkills: BrainSkillInfo[] = [];
 
 	constructor(private native: NativeBrainConsole) {
 		this.isNative = native !== fakeBrainConsole;
 		this.native.addObserver((event) => this.handleEvent(event));
+	}
+
+	/** Skill catalog from the latest brain `ready` event (may lag subscribe). */
+	get skills(): BrainSkillInfo[] {
+		return this.cachedSkills;
 	}
 
 	subscribe(listener: (event: BrainConsoleEvent, payload: unknown) => void) {
@@ -820,6 +842,24 @@ class BrainBridge {
 
 	private handleEvent(event: BrainConsoleEvent) {
 		const payload = parsePayload(event);
+		if (event.type === 'ready') {
+			const record =
+				payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+			if (Array.isArray(record.skills)) {
+				this.cachedSkills = record.skills
+					.map((raw): BrainSkillInfo | null => {
+						if (!raw || typeof raw !== 'object') return null;
+						const skill = raw as Record<string, unknown>;
+						if (typeof skill.name !== 'string' || !skill.name) return null;
+						return {
+							name: skill.name,
+							description: typeof skill.description === 'string' ? skill.description : '',
+							source: typeof skill.source === 'string' ? skill.source : 'builtin'
+						};
+					})
+					.filter((skill): skill is BrainSkillInfo => skill !== null);
+			}
+		}
 		for (const listener of this.listeners) listener(event, payload);
 		for (const waiter of Array.from(this.waiters)) {
 			if (event.request_id !== waiter.requestId) continue;
@@ -859,7 +899,15 @@ class FakeBrainConsole implements NativeBrainConsole {
 		this.emit(requestId, undefined, 'ready', {
 			brain_version: 'dev',
 			pie_commit: 'dev',
-			app_support_dir: '/tmp/stead-dev'
+			app_support_dir: '/tmp/stead-dev',
+			// Mirrors the real bundled skill library (brain/skills/builtin).
+			skills: [
+				{ name: 'browser-credential-handoff', description: 'Log in via your password manager', source: 'builtin' },
+				{ name: 'gmail-browser', description: 'Read and act on Gmail', source: 'builtin' },
+				{ name: 'github-browser', description: 'Work with GitHub in the browser', source: 'builtin' },
+				{ name: 'notion-browser', description: 'Work with Notion pages', source: 'builtin' },
+				{ name: 'artifact-document', description: 'Create documents and files', source: 'builtin' }
+			]
 		});
 		return this.accepted(requestId);
 	}
@@ -900,7 +948,19 @@ class FakeBrainConsole implements NativeBrainConsole {
 	) {
 		const requestId = this.requestId();
 		queueMicrotask(async () => {
-			const response = `Dev brain bridge is active (${permissionMode}). Native Chromium wiring will stream the real Pie turn for: ${text}`;
+			const response = [
+				`**Dev brain bridge** is active (\`${permissionMode}\`). Native Chromium wiring will stream the real Pie turn for: *${text}*`,
+				'',
+				'A quick markdown check:',
+				'',
+				'1. Ordered items render with numbers',
+				'- Bullets render with dots',
+				'- Inline `code`, **bold**, and [links](https://example.com) work',
+				'',
+				'```',
+				'const stead = "code blocks too";',
+				'```'
+			].join('\n');
 			for (const token of response.split(/(\s+)/)) {
 				this.emit(requestId, sessionId, 'assistant_delta', { text: token });
 				await new Promise((resolve) => setTimeout(resolve, 12));

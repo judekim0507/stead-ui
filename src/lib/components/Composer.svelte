@@ -4,7 +4,7 @@
 	import { flip } from 'svelte/animate';
 	import { motionEase } from '$lib/motion';
 	import type { ContextRef } from '$lib/chat';
-	import type { BrainTabContext } from '$lib/brain/bridge';
+	import type { BrainSkillInfo, BrainTabContext } from '$lib/brain/bridge';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import BorderBeam from './BorderBeam.svelte';
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -19,7 +19,15 @@
 	import favicon from '$lib/assets/favicon.svg';
 
 	type Kind = 'tab' | 'skill';
-	type MentionItem = { id: string; label: string; sublabel?: string; favicon?: string; kind: Kind };
+	type MentionItem = {
+		id: string;
+		label: string;
+		sublabel?: string;
+		favicon?: string;
+		kind: Kind;
+		tab_id?: number;
+		url?: string;
+	};
 	type MentionGroup = { type: string; icon: typeof AppWindowIcon; items: MentionItem[] };
 	type ContextItem = {
 		id: string;
@@ -36,6 +44,7 @@
 		contextUrl?: string;
 		contextFavicon?: string;
 		currentTab?: BrainTabContext | null;
+		skills?: BrainSkillInfo[];
 		placeholder?: string;
 		mentionGroups?: MentionGroup[];
 		streaming?: boolean;
@@ -46,36 +55,14 @@
 		onRemoveQueued?: (index: number) => void;
 	};
 
-	const defaultMentionGroups: MentionGroup[] = [
-		{
-			type: 'Tabs',
-			icon: AppWindowIcon,
-			items: [
-				{ id: 't1', label: 'Ask Browser', sublabel: 'localhost', favicon, kind: 'tab' },
-				{ id: 't2', label: 'GitHub', sublabel: 'github.com', kind: 'tab' },
-				{ id: 't3', label: 'Linear', sublabel: 'linear.app', kind: 'tab' },
-				{ id: 't4', label: 'Gmail', sublabel: 'mail.google.com', kind: 'tab' }
-			]
-		},
-		{
-			type: 'Skills',
-			icon: SparklesIcon,
-			items: [
-				{ id: 's1', label: 'summarize', sublabel: 'Summarize the page', kind: 'skill' },
-				{ id: 's2', label: 'extract-data', sublabel: 'Pull structured data', kind: 'skill' },
-				{ id: 's3', label: 'fill-form', sublabel: 'Fill out forms', kind: 'skill' },
-				{ id: 's4', label: 'deep-research', sublabel: 'Research across sources', kind: 'skill' }
-			]
-		}
-	];
-
 	let {
 		contextTitle = 'Ask Browser',
 		contextUrl = 'localhost',
 		contextFavicon = favicon,
 		currentTab = null,
+		skills = [],
 		placeholder = 'Ask or do anything…',
-		mentionGroups = defaultMentionGroups,
+		mentionGroups = [],
 		streaming = false,
 		queued = [],
 		showContext = true,
@@ -83,6 +70,42 @@
 		onStop,
 		onRemoveQueued
 	}: Props = $props();
+
+	// Mention targets are real data only: the bound tab (from the native tab
+	// context), the brain's skill catalog, plus whatever the host surface
+	// passes in. No canned samples.
+	let allMentionGroups = $derived.by(() => {
+		const groups: MentionGroup[] = [];
+		if (currentTab) {
+			groups.push({
+				type: 'Tabs',
+				icon: AppWindowIcon,
+				items: [
+					{
+						id: `tab-${currentTab.tab_id}`,
+						label: currentTab.title || 'Current tab',
+						sublabel: currentTab.url,
+						kind: 'tab',
+						tab_id: currentTab.tab_id,
+						url: currentTab.url
+					}
+				]
+			});
+		}
+		if (skills.length) {
+			groups.push({
+				type: 'Skills',
+				icon: SparklesIcon,
+				items: skills.map((skill) => ({
+					id: `skill-${skill.name}`,
+					label: skill.name,
+					sublabel: skill.description,
+					kind: 'skill' as const
+				}))
+			});
+		}
+		return [...groups, ...mentionGroups];
+	});
 
 	let value = $state('');
 	let textarea = $state<HTMLTextAreaElement | null>(null);
@@ -164,7 +187,7 @@
 	let activeIndex = $state(0);
 
 	let filteredGroups = $derived(
-		mentionGroups
+		allMentionGroups
 			.map((g) => ({
 				...g,
 				items: g.items.filter((it) =>
@@ -199,7 +222,7 @@
 	// Inline mentions are skills only (tabs/files become chips). Anchor at a word
 	// boundary so emails (foo@bar) don't match.
 	let mentionRe = $derived.by(() => {
-		const labels = mentionGroups
+		const labels = allMentionGroups
 			.flatMap((g) => g.items)
 			.map((i) => i.label)
 			.sort((a, b) => b.length - a.length)
@@ -276,6 +299,8 @@
 				title: item.label,
 				sublabel: item.sublabel,
 				favicon: item.favicon,
+				tab_id: item.tab_id,
+				url: item.url,
 				kind: 'tab'
 			});
 		}

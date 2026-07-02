@@ -11,6 +11,7 @@
 	import SidebarHeader from '$lib/components/SidebarHeader.svelte';
 	import Conversation from '$lib/components/Conversation.svelte';
 	import Composer from '$lib/components/Composer.svelte';
+	import PermissionBar from '$lib/components/PermissionBar.svelte';
 	import QuestionTool from '$lib/components/QuestionTool.svelte';
 	import ModelBar from '$lib/components/ModelBar.svelte';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
@@ -42,9 +43,21 @@
 	let permission = $state<AgentPermissionMode>('read');
 
 	onMount(() => {
-		void getCurrentTabContext().then((tab) => {
-			currentTab = tab;
-		});
+		// The sidebar tracks the tab it is bound to. Tab switches don't refocus
+		// the side panel's webview, so a light poll backs up the focus events.
+		const refresh = () =>
+			void getCurrentTabContext().then((tab) => {
+				if (tab?.tab_id !== currentTab?.tab_id || tab?.url !== currentTab?.url) currentTab = tab;
+			});
+		refresh();
+		const interval = setInterval(refresh, 2500);
+		window.addEventListener('focus', refresh);
+		document.addEventListener('visibilitychange', refresh);
+		return () => {
+			clearInterval(interval);
+			window.removeEventListener('focus', refresh);
+			document.removeEventListener('visibilitychange', refresh);
+		};
 	});
 </script>
 
@@ -97,6 +110,8 @@
 			</button>
 		{/if}
 
+		<PermissionBar tabId={currentTab?.tab_id ?? null} />
+
 		<!-- The question tool REPLACES the reply bar while it's active -->
 		{#if chat.questionActive}
 			<div transition:fly={{ y: 12, duration: 260, easing: motionEase }}>
@@ -110,6 +125,7 @@
 			{#key currentTab?.tab_id ?? 'no-tab'}
 				<Composer
 					currentTab={currentTab}
+					skills={chat.skills}
 					onSend={(text, context) =>
 						chat.handleSend(text, context, { provider, model, permission, tabContext: currentTab })}
 					onStop={chat.stopStreaming}
