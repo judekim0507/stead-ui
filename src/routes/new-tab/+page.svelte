@@ -14,9 +14,17 @@
 	const brain = getBrainBridge();
 	const recentChats = $derived(sessions.slice(0, 5));
 
-	function chatUrl(params: Record<string, string>) {
+	function chatBaseUrl() {
+		if (typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)) {
+			return '/ai-chat';
+		}
+		return 'stead://chat/ai-chat';
+	}
+
+	function chatUrl(params: Record<string, string> = {}) {
 		const search = new URLSearchParams(params);
-		return `/ai-chat?${search.toString()}`;
+		const queryString = search.toString();
+		return queryString ? `${chatBaseUrl()}?${queryString}` : chatBaseUrl();
 	}
 
 	function searchUrl(value: string) {
@@ -94,7 +102,7 @@
 					placeholder={mode === 'ask' ? 'Ask Stead anything…' : 'Search or type a URL'}
 					class="text-foreground placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-[15px] outline-none"
 				/>
-				<!-- Search / Ask AI with sliding indicator -->
+				<!-- Search / Ask Stead with sliding indicator -->
 				<div
 					class="relative grid shrink-0 grid-cols-2 rounded-full bg-black/25 p-0.5 text-[13px] font-medium"
 				>
@@ -116,7 +124,7 @@
 						onclick={() => (mode = 'ask')}
 						class="relative z-10 px-3.5 py-1 transition-colors {mode === 'ask'
 							? 'text-foreground'
-							: 'text-muted-foreground hover:text-foreground'}">Ask AI</button
+							: 'text-muted-foreground hover:text-foreground'}">Ask Stead</button
 					>
 				</div>
 			</div>
@@ -128,7 +136,7 @@
 				<span class="text-muted-foreground text-xs font-medium">Recent chats</span>
 				<button
 					type="button"
-					onclick={() => (window.location.href = '/ai-chat')}
+					onclick={() => (window.location.href = chatUrl())}
 					class="text-muted-foreground hover:text-foreground flex items-center gap-0.5 text-xs font-medium transition-colors"
 				>
 					All chats <ChevronRightIcon class="size-3.5" />
