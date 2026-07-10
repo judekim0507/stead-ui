@@ -29,7 +29,9 @@
 	}: Props = $props();
 
 	function openAiSettings() {
-		window.open('stead://chat/ai-settings', '_blank', 'noopener');
+		// WebUI navigation must use Chromium's registered internal scheme. The
+		// omnibox presentation layer rewrites it to stead:// for the user.
+		window.open('chrome://chat/ai-settings', '_blank', 'noopener');
 	}
 </script>
 
