@@ -72,8 +72,18 @@
 	let selectedProvider = $derived(modelProviders.find((p) => p.provider === provider));
 	let modelOptions = $derived(selectedProvider?.models ?? []);
 	let models = $derived(modelOptions.map((m) => m.id));
-	let modelLabels = $derived(Object.fromEntries(modelOptions.map((m) => [m.id, m.name])));
 	let providerLabel = $derived(selectedProvider?.label ?? provider);
+	let modelLabels = $derived.by(() =>
+		Object.fromEntries(
+			modelOptions.map((modelOption) => {
+				const prefix = `${providerLabel} `;
+				const label = modelOption.name.startsWith(prefix)
+					? modelOption.name.slice(prefix.length)
+					: modelOption.name;
+				return [modelOption.id, label];
+			})
+		)
+	);
 	let authStatuses = $state<ProviderAuthStatus[]>([]);
 	let authBusy = $state(false);
 	let apiKeyOpen = $state(false);

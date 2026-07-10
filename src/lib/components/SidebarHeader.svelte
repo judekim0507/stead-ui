@@ -17,7 +17,7 @@
 	};
 
 	let {
-		title = 'Ask Browser',
+		title = 'Ask Stead',
 		current = 'New Session',
 		groups = [],
 		loading = false,

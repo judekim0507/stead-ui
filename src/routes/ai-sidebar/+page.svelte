@@ -42,6 +42,15 @@
 	let effort = $state('High');
 	let permission = $state<AgentPermissionMode>('read');
 
+	function closeSidebar() {
+		const chromeApi = (
+			globalThis as typeof globalThis & {
+				chrome?: { send?: (message: string) => void };
+			}
+		).chrome;
+		chromeApi?.send?.('closeSteadSidebar');
+	}
+
 	onMount(() => {
 		// The sidebar tracks the tab it is bound to. Tab switches don't refocus
 		// the side panel's webview, so a light poll backs up the focus events.
@@ -62,7 +71,7 @@
 </script>
 
 <svelte:head>
-	<title>Ask Browser</title>
+	<title>Ask Stead</title>
 </svelte:head>
 
 <div class="bg-background text-foreground relative h-dvh w-full overflow-hidden antialiased">
@@ -84,6 +93,7 @@
 			groups={chat.sessionGroups}
 			loading={chat.sessionsLoading}
 			{currentTab}
+			onClose={closeSidebar}
 			onNew={chat.newChat}
 			onSelect={chat.loadSession}
 		/>
