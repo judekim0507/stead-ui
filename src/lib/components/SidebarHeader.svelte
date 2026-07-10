@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index.js';
 	import type { BrainTabContext } from '$lib/brain/bridge';
+	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import XIcon from '@lucide/svelte/icons/x';
 	import SessionSelector from './SessionSelector.svelte';
 	import ControlConsole from './ControlConsole.svelte';
@@ -26,6 +27,10 @@
 		onNew,
 		onSelect
 	}: Props = $props();
+
+	function openAiSettings() {
+		window.open('stead://chat/ai-settings', '_blank', 'noopener');
+	}
 </script>
 
 <header class="flex h-14 items-center justify-between gap-2 px-2.5 select-none">
@@ -46,6 +51,16 @@
 	<!-- Right: session selector -->
 	<div class="flex shrink-0 items-center gap-1">
 		<ControlConsole tabId={currentTab?.tab_id} />
+		<Button
+			variant="ghost"
+			size="icon"
+			class="text-muted-foreground hover:text-foreground size-8 shrink-0"
+			aria-label="Stead AI settings"
+			title="Stead AI settings"
+			onclick={openAiSettings}
+		>
+			<SettingsIcon class="size-[17px]" />
+		</Button>
 		<SessionSelector {current} {groups} {loading} {onNew} {onSelect} />
 	</div>
 </header>

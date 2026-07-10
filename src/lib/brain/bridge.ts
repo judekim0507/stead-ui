@@ -163,7 +163,9 @@ type MojoRemote = {
 };
 
 type MojoModule = {
-	BrainConsoleRemote: new () => MojoRemote;
+	BrainConsole: {
+		getRemote(): MojoRemote;
+	};
 	BrainPermissionMode: {
 		kAsk: MojoBrainPermissionMode;
 		kRead: MojoBrainPermissionMode;
@@ -171,12 +173,6 @@ type MojoModule = {
 	};
 	BrainObserverReceiver: new (impl: { onBrainEvent(event: MojoBrainEvent): void }) => {
 		$: { bindNewPipeAndPassRemote(): unknown };
-	};
-};
-
-type BrowserInterfaceBrokerModule = {
-	BrowserInterfaceBroker: {
-		getInstance(): { getInterface(receiver: unknown): void };
 	};
 };
 
@@ -204,7 +200,6 @@ const BRAIN_MOJO_MODULES = [
 	'/brain_console.mojom-webui.js',
 	'./brain_console.mojom-webui.js'
 ];
-const BROWSER_INTERFACE_BROKER_MODULE = 'chrome://resources/js/browser_interface_broker.js';
 const DEV_MODEL_CATALOG: BrainModelCatalogProvider[] = [
 	{
 		provider: 'anthropic',
@@ -522,20 +517,25 @@ class MojoBrainConsole implements NativeBrainConsole {
 
 class LazyNativeBrainConsole implements NativeBrainConsole {
 	private listeners = new Set<(event: BrainConsoleEvent) => void>();
-	private nativePromise: Promise<NativeBrainConsole>;
+	private nativePromise: Promise<NativeBrainConsole> | undefined;
 
-	constructor() {
-		this.nativePromise = createMojoBrainConsole().catch(() => fakeBrainConsole);
+	private getNative() {
+		this.nativePromise ??= createMojoBrainConsole();
+		return this.nativePromise;
 	}
 
 	addObserver(handler: (event: BrainConsoleEvent) => void) {
 		this.listeners.add(handler);
 		let unsubscribeNative: (() => void) | undefined;
 		let active = true;
-		void this.nativePromise.then((native) => {
-			if (!active) return;
-			unsubscribeNative = native.addObserver(handler);
-		});
+		void this.getNative()
+			.then((native) => {
+				if (!active) return;
+				unsubscribeNative = native.addObserver(handler);
+			})
+			.catch(() => {
+				// Calls such as initialize surface the connection error to the UI.
+			});
 		return () => {
 			active = false;
 			this.listeners.delete(handler);
@@ -544,19 +544,19 @@ class LazyNativeBrainConsole implements NativeBrainConsole {
 	}
 
 	async initialize() {
-		return (await this.nativePromise).initialize();
+		return (await this.getNative()).initialize();
 	}
 
 	async createSession(title: string | null, originSurface: string) {
-		return (await this.nativePromise).createSession(title, originSurface);
+		return (await this.getNative()).createSession(title, originSurface);
 	}
 
 	async listSessions() {
-		return (await this.nativePromise).listSessions();
+		return (await this.getNative()).listSessions();
 	}
 
 	async loadSession(sessionId: string) {
-		return (await this.nativePromise).loadSession(sessionId);
+		return (await this.getNative()).loadSession(sessionId);
 	}
 
 	async sendMessage(
@@ -566,7 +566,7 @@ class LazyNativeBrainConsole implements NativeBrainConsole {
 		model?: BrainModelSelection | null,
 		permissionMode: AgentPermissionMode = 'read'
 	) {
-		return (await this.nativePromise).sendMessage(
+		return (await this.getNative()).sendMessage(
 			sessionId,
 			text,
 			tabContext,
@@ -576,31 +576,31 @@ class LazyNativeBrainConsole implements NativeBrainConsole {
 	}
 
 	async cancelTurn(sessionId: string) {
-		return (await this.nativePromise).cancelTurn(sessionId);
+		return (await this.getNative()).cancelTurn(sessionId);
 	}
 
 	async listModels() {
-		return (await this.nativePromise).listModels();
+		return (await this.getNative()).listModels();
 	}
 
 	async listProviderAuth() {
-		return (await this.nativePromise).listProviderAuth();
+		return (await this.getNative()).listProviderAuth();
 	}
 
 	async startProviderOAuth(provider: string) {
-		return (await this.nativePromise).startProviderOAuth(provider);
+		return (await this.getNative()).startProviderOAuth(provider);
 	}
 
 	async importCodexAuth(path?: string | null) {
-		return (await this.nativePromise).importCodexAuth(path);
+		return (await this.getNative()).importCodexAuth(path);
 	}
 
 	async clearProviderCredential(provider: string) {
-		return (await this.nativePromise).clearProviderCredential(provider);
+		return (await this.getNative()).clearProviderCredential(provider);
 	}
 
 	async setProviderApiKey(provider: string, apiKey: string) {
-		return (await this.nativePromise).setProviderApiKey(provider, apiKey);
+		return (await this.getNative()).setProviderApiKey(provider, apiKey);
 	}
 
 	async respondToUserPrompt(
@@ -609,7 +609,7 @@ class LazyNativeBrainConsole implements NativeBrainConsole {
 		response: unknown,
 		cancelled = false
 	) {
-		return (await this.nativePromise).respondToUserPrompt(
+		return (await this.getNative()).respondToUserPrompt(
 			sessionId,
 			toolCallId,
 			response,
@@ -618,19 +618,13 @@ class LazyNativeBrainConsole implements NativeBrainConsole {
 	}
 
 	async shutdownBrain() {
-		return (await this.nativePromise).shutdownBrain();
+		return (await this.getNative()).shutdownBrain();
 	}
 }
 
 async function createMojoBrainConsole(): Promise<NativeBrainConsole> {
-	const [mojoModule, brokerModule] = await Promise.all([
-		importFirst<MojoModule>(BRAIN_MOJO_MODULES),
-		dynamicImport<BrowserInterfaceBrokerModule>(BROWSER_INTERFACE_BROKER_MODULE)
-	]);
-	const remote = new mojoModule.BrainConsoleRemote();
-	brokerModule.BrowserInterfaceBroker.getInstance().getInterface(
-		remote.$.bindNewPipeAndPassReceiver()
-	);
+	const mojoModule = await importFirst<MojoModule>(BRAIN_MOJO_MODULES);
+	const remote = mojoModule.BrainConsole.getRemote();
 	return new MojoBrainConsole(
 		remote,
 		mojoModule.BrainObserverReceiver,
@@ -642,6 +636,10 @@ class BrainBridge {
 	readonly isNative: boolean;
 	private listeners = new Set<(event: BrainConsoleEvent, payload: unknown) => void>();
 	private waiters = new Set<Waiter<unknown>>();
+	private bufferedEvents = new Map<
+		string,
+		Array<{ event: BrainConsoleEvent; payload: unknown }>
+	>();
 	private cachedSkills: BrainSkillInfo[] = [];
 
 	constructor(private native: NativeBrainConsole) {
@@ -833,11 +831,38 @@ class BrainBridge {
 				reject,
 				timer: setTimeout(() => {
 					this.waiters.delete(waiter as Waiter<unknown>);
+					this.bufferedEvents.delete(requestId);
 					reject(new Error(`Timed out waiting for brain request ${requestId}.`));
 				}, timeoutMs)
 			};
 			this.waiters.add(waiter as Waiter<unknown>);
+			const buffered = this.bufferedEvents.get(requestId) ?? [];
+			for (const item of buffered) {
+				if (this.deliverToWaiter(waiter as Waiter<unknown>, item.event, item.payload)) break;
+			}
 		});
+	}
+
+	private deliverToWaiter(
+		waiter: Waiter<unknown>,
+		event: BrainConsoleEvent,
+		payload: unknown
+	) {
+		const error = eventError(event, payload);
+		if (error) {
+			clearTimeout(waiter.timer);
+			this.waiters.delete(waiter);
+			this.bufferedEvents.delete(waiter.requestId);
+			waiter.reject(error);
+			return true;
+		}
+		const value = waiter.accept(event, payload);
+		if (value === undefined) return false;
+		clearTimeout(waiter.timer);
+		this.waiters.delete(waiter);
+		this.bufferedEvents.delete(waiter.requestId);
+		waiter.resolve(value);
+		return true;
 	}
 
 	private handleEvent(event: BrainConsoleEvent) {
@@ -861,20 +886,20 @@ class BrainBridge {
 			}
 		}
 		for (const listener of this.listeners) listener(event, payload);
+		let matchedWaiter = false;
 		for (const waiter of Array.from(this.waiters)) {
 			if (event.request_id !== waiter.requestId) continue;
-			const error = eventError(event, payload);
-			if (error) {
-				clearTimeout(waiter.timer);
-				this.waiters.delete(waiter);
-				waiter.reject(error);
-				continue;
-			}
-			const value = waiter.accept(event, payload);
-			if (value !== undefined) {
-				clearTimeout(waiter.timer);
-				this.waiters.delete(waiter);
-				waiter.resolve(value);
+			matchedWaiter = true;
+			this.deliverToWaiter(waiter, event, payload);
+		}
+		if (!matchedWaiter && event.request_id && event.type !== 'ready') {
+			const buffered = this.bufferedEvents.get(event.request_id) ?? [];
+			buffered.push({ event, payload });
+			this.bufferedEvents.set(event.request_id, buffered.slice(-32));
+			while (this.bufferedEvents.size > 64) {
+				const oldest = this.bufferedEvents.keys().next().value;
+				if (typeof oldest !== 'string') break;
+				this.bufferedEvents.delete(oldest);
 			}
 		}
 	}

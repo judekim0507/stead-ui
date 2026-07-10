@@ -98,7 +98,9 @@ type MojoControlRemote = {
 };
 
 type MojoControlModule = {
-	ControlConsoleRemote: new () => MojoControlRemote;
+	ControlConsole: {
+		getRemote(): MojoControlRemote;
+	};
 	ConsoleObserverReceiver: new (impl: {
 		onAuditEntry(entry: RawAuditEntry): void;
 		onConfirmation(request: RawConfirmation): void;
@@ -109,18 +111,11 @@ type MojoControlModule = {
 	};
 };
 
-type BrowserInterfaceBrokerModule = {
-	BrowserInterfaceBroker: {
-		getInstance(): { getInterface(receiver: unknown): void };
-	};
-};
-
 const CONTROL_MOJO_MODULES = [
 	'chrome://resources/mojo/chrome/browser/ui/stead/agent_control/agent_control.mojom-webui.js',
 	'/agent_control.mojom-webui.js',
 	'./agent_control.mojom-webui.js'
 ];
-const BROWSER_INTERFACE_BROKER_MODULE = 'chrome://resources/js/browser_interface_broker.js';
 const ACTION_CLASSES: ControlActionClass[] = [
 	'read_only',
 	'navigation',
@@ -253,19 +248,24 @@ class MojoControlConsole implements NativeControlConsole {
 }
 
 class LazyNativeControlConsole implements NativeControlConsole {
-	private nativePromise: Promise<NativeControlConsole>;
+	private nativePromise: Promise<NativeControlConsole> | undefined;
 
-	constructor() {
-		this.nativePromise = createMojoControlConsole().catch(() => fakeControlConsole);
+	private getNative() {
+		this.nativePromise ??= createMojoControlConsole();
+		return this.nativePromise;
 	}
 
 	addObserver(handler: (event: ControlConsoleEvent) => void) {
 		let unsubscribeNative: (() => void) | undefined;
 		let active = true;
-		void this.nativePromise.then((native) => {
-			if (!active) return;
-			unsubscribeNative = native.addObserver(handler);
-		});
+		void this.getNative()
+			.then((native) => {
+				if (!active) return;
+				unsubscribeNative = native.addObserver(handler);
+			})
+			.catch(() => {
+				// Public calls surface the native connection error to the UI.
+			});
 		return () => {
 			active = false;
 			unsubscribeNative?.();
@@ -273,19 +273,19 @@ class LazyNativeControlConsole implements NativeControlConsole {
 	}
 
 	async getAuditLog(maxEntries = 30) {
-		return (await this.nativePromise).getAuditLog(maxEntries);
+		return (await this.getNative()).getAuditLog(maxEntries);
 	}
 
 	async respondToConfirmation(actionId: number, approve: boolean) {
-		return (await this.nativePromise).respondToConfirmation(actionId, approve);
+		return (await this.getNative()).respondToConfirmation(actionId, approve);
 	}
 
 	async cancel(tabId: number) {
-		return (await this.nativePromise).cancel(tabId);
+		return (await this.getNative()).cancel(tabId);
 	}
 
 	async getActiveTabContext() {
-		return (await this.nativePromise).getActiveTabContext();
+		return (await this.getNative()).getActiveTabContext();
 	}
 }
 
@@ -332,14 +332,8 @@ class FakeControlConsole implements NativeControlConsole {
 }
 
 async function createMojoControlConsole(): Promise<NativeControlConsole> {
-	const [mojoModule, brokerModule] = await Promise.all([
-		importFirst<MojoControlModule>(CONTROL_MOJO_MODULES),
-		dynamicImport<BrowserInterfaceBrokerModule>(BROWSER_INTERFACE_BROKER_MODULE)
-	]);
-	const remote = new mojoModule.ControlConsoleRemote();
-	brokerModule.BrowserInterfaceBroker.getInstance().getInterface(
-		remote.$.bindNewPipeAndPassReceiver()
-	);
+	const mojoModule = await importFirst<MojoControlModule>(CONTROL_MOJO_MODULES);
+	const remote = mojoModule.ControlConsole.getRemote();
 	return new MojoControlConsole(remote, mojoModule.ConsoleObserverReceiver);
 }
 

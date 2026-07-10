@@ -67,12 +67,15 @@
 	];
 	const efforts = ['High', 'Medium', 'Low'];
 
-	let modelProviders = $state<BrainModelCatalogProvider[]>(fallbackModelProviders);
+	const brain = getBrainBridge();
+	let modelProviders = $state<BrainModelCatalogProvider[]>(
+		brain.isNative ? [] : fallbackModelProviders
+	);
 	let providers = $derived(modelProviders.map((p) => ({ id: p.provider, label: p.label })));
 	let selectedProvider = $derived(modelProviders.find((p) => p.provider === provider));
 	let modelOptions = $derived(selectedProvider?.models ?? []);
 	let models = $derived(modelOptions.map((m) => m.id));
-	let providerLabel = $derived(selectedProvider?.label ?? provider);
+	let providerLabel = $derived(selectedProvider?.label ?? (brain.isNative ? 'Loading' : provider));
 	let modelLabels = $derived.by(() =>
 		Object.fromEntries(
 			modelOptions.map((modelOption) => {
@@ -115,7 +118,6 @@
 		providerAuth?.account_id ??
 			(providerAuth?.needs_refresh ? 'Refresh needed' : providerAuth?.source ?? providerAuth?.credential_kind)
 	);
-	const brain = getBrainBridge();
 
 	function mergeCatalogAuth(catalog: BrainModelCatalogProvider[]) {
 		const catalogStatuses = catalog.map((entry) => ({

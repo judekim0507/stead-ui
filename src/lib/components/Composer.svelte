@@ -16,7 +16,6 @@
 	import AppWindowIcon from '@lucide/svelte/icons/app-window';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import FileIcon from '@lucide/svelte/icons/file';
-	import favicon from '$lib/assets/favicon.svg';
 
 	type Kind = 'tab' | 'skill';
 	type MentionItem = {
@@ -56,9 +55,9 @@
 	};
 
 	let {
-		contextTitle = 'Ask Browser',
-		contextUrl = 'localhost',
-		contextFavicon = favicon,
+		contextTitle = '',
+		contextUrl = '',
+		contextFavicon = '',
 		currentTab = null,
 		skills = [],
 		placeholder = 'Ask or do anything…',
@@ -130,13 +129,7 @@
 				kind: 'tab'
 			};
 		}
-		return {
-			id: 'current-tab',
-			title: contextTitle,
-			sublabel: contextUrl,
-			favicon: contextFavicon,
-			kind: 'tab'
-		};
+		return null;
 	}
 
 	// Context chips — current tab first, then any mentioned tabs / uploaded files.
