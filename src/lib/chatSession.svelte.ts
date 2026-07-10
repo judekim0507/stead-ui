@@ -392,7 +392,10 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 		messages.push({ role: 'user', text, context });
 		const assistant = createAssistant('Starting Stead brain');
 		messages.push(assistant);
-		activeAssistant = assistant;
+		// `$state` proxies objects when they enter the array. Keep the proxied
+		// reference so native stream events trigger a Svelte render.
+		const renderedAssistant = messages[messages.length - 1] as AssistantMessage;
+		activeAssistant = renderedAssistant;
 		activeText = '';
 		await tick();
 		pin();
@@ -409,10 +412,13 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 				});
 			}
 		} catch (error) {
-			assistant.phase = 'answering';
-			setAssistantText(assistant, error instanceof Error ? error.message : String(error));
+			renderedAssistant.phase = 'answering';
+			setAssistantText(
+				renderedAssistant,
+				error instanceof Error ? error.message : String(error)
+			);
 		} finally {
-			assistant.phase = 'done';
+			renderedAssistant.phase = 'done';
 			activeAssistant = null;
 			await tick();
 			pin();

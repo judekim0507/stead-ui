@@ -66,6 +66,9 @@
 		}
 	];
 	const efforts = ['High', 'Medium', 'Low'];
+	const preferredModels: Record<string, string[]> = {
+		'openai-codex': ['gpt-5.4', 'gpt-5.5', 'gpt-5.4-mini']
+	};
 
 	const brain = getBrainBridge();
 	let modelProviders = $state<BrainModelCatalogProvider[]>(
@@ -139,7 +142,9 @@
 		if (providers.length > 0 && !providers.some((p) => p.id === provider)) {
 			provider = providers[0].id;
 		}
-		if (models.length > 0 && !models.includes(model)) model = models[0];
+		if (models.length > 0 && !models.includes(model)) {
+			model = preferredModels[provider]?.find((candidate) => models.includes(candidate)) ?? models[0];
+		}
 	});
 
 	$effect(() => {
