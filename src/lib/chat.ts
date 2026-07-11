@@ -46,7 +46,7 @@ export type Message = UserMessage | AssistantMessage;
 
 export function faviconUrlForPage(url: string) {
 	if (!url) return '';
-	return `chrome://favicon2/?size=32&scale_factor=1x&page_url=${encodeURIComponent(url)}`;
+	return `chrome://favicon2/?size=32&scaleFactor=1x&pageUrl=${encodeURIComponent(url)}`;
 }
 
 // Assistant text is markdown (the brain streams plain markdown).
