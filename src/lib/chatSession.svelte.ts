@@ -105,11 +105,68 @@ function createAssistant(label: string): AssistantMessage {
 		steps: [{ kind: 'thought', label }],
 		phase: 'thinking',
 		thoughtSeconds: 0,
+		thoughtStartedAt: Date.now(),
 		collapsed: true,
 		blocks: [],
 		tokens: [],
 		revealed: 0
 	};
+}
+
+function suggestedTitle(text: string) {
+	const normalized = text.trim().replace(/\s+/g, ' ');
+	if (!normalized) return 'New chat';
+	if (normalized.length <= 56) return normalized;
+	const candidate = normalized.slice(0, 55);
+	const boundary = candidate.lastIndexOf(' ');
+	return `${candidate.slice(0, boundary > 28 ? boundary : 55).trim()}…`;
+}
+
+const TOOL_ACTIVITY: Record<string, { running: string; done: string }> = {
+	'browser.list_tabs': { running: 'Checking your open tabs', done: 'Checked your open tabs' },
+	browser_list_tabs: { running: 'Checking your open tabs', done: 'Checked your open tabs' },
+	'browser.snapshot': { running: 'Reading the current page', done: 'Read the current page' },
+	browser_snapshot: { running: 'Reading the current page', done: 'Read the current page' },
+	'browser.navigate': { running: 'Opening the requested page', done: 'Opened the requested page' },
+	browser_navigate: { running: 'Opening the requested page', done: 'Opened the requested page' },
+	'browser.open_tab': { running: 'Opening a new tab', done: 'Opened a new tab' },
+	browser_open_tab: { running: 'Opening a new tab', done: 'Opened a new tab' },
+	'browser.click': { running: 'Selecting an item on the page', done: 'Selected an item on the page' },
+	browser_click: { running: 'Selecting an item on the page', done: 'Selected an item on the page' },
+	'browser.fill': { running: 'Entering information', done: 'Entered information' },
+	browser_fill: { running: 'Entering information', done: 'Entered information' },
+	'files.read': { running: 'Reading a session file', done: 'Read a session file' },
+	files_read: { running: 'Reading a session file', done: 'Read a session file' },
+	'files.write': { running: 'Creating a session file', done: 'Created a session file' },
+	files_write: { running: 'Creating a session file', done: 'Created a session file' }
+};
+
+function toolActivity(payload: unknown) {
+	const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+	const id = typeof record.tool_call_id === 'string' ? record.tool_call_id : undefined;
+	const name = typeof record.name === 'string'
+		? record.name
+		: typeof record.message === 'string'
+			? record.message
+			: '';
+	const status = typeof record.status === 'string' ? record.status : '';
+	const labels = TOOL_ACTIVITY[name];
+	if (labels) return { id, label: status === 'completed' ? labels.done : labels.running };
+	const readable = name.replace(/^browser[._]/, '').replace(/^files[._]/, '').replaceAll('_', ' ').replaceAll('.', ' ').trim();
+	if (!readable || readable === 'completed') return null;
+	return { id, label: `${status === 'completed' ? 'Finished' : 'Using'} ${readable}` };
+}
+
+function friendlyError(payload: unknown) {
+	const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+	const raw = typeof record.message === 'string' ? record.message : 'The agent could not complete this turn.';
+	if (raw.includes('No tool call found for function call output')) {
+		return 'This chat contained an invalid saved tool result. Stead repaired the conversation history; please retry your request.';
+	}
+	if (raw.includes('400 Bad Request')) {
+		return 'The AI provider rejected this turn. Please retry; the technical details were saved for diagnostics.';
+	}
+	return raw;
 }
 
 function setAssistantText(message: AssistantMessage, text: string) {
@@ -154,6 +211,7 @@ function restoreMessages(stored: BrainSessionMessage[]): Message[] {
 		const assistant = createAssistant('Completed');
 		assistant.phase = 'done';
 		assistant.thoughtSeconds = 0;
+		assistant.thoughtStartedAt = 0;
 		setAssistantText(assistant, visibleText);
 		restored.push(assistant);
 	}
@@ -249,7 +307,8 @@ export function createChatSession(
 	opts: {
 		pin?: () => void;
 		surface?: string;
-		onModelSelection?: (selection: BrainModelSelection) => void;
+			onModelSelection?: (selection: BrainModelSelection) => void;
+			onSessionChange?: (sessionId: string | null) => void;
 	} = {}
 ) {
 	let messages = $state<Message[]>([]);
@@ -308,7 +367,14 @@ export function createChatSession(
 			const delta = typeof record.text === 'string' ? record.text : '';
 			if (!delta) return;
 			activeText += delta;
+			activeAssistant.steps = activeAssistant.steps.filter(
+				(step) => step.label !== 'Starting Stead brain'
+			);
 			activeAssistant.phase = 'answering';
+			activeAssistant.thoughtSeconds = Math.max(
+				1,
+				Math.round((Date.now() - activeAssistant.thoughtStartedAt) / 1000)
+			);
 			setAssistantText(activeAssistant, activeText);
 			void tick().then(pin);
 			return;
@@ -339,15 +405,25 @@ export function createChatSession(
 		}
 
 		if (event.type === 'tool_call' || event.type === 'tool_status') {
-			activeAssistant.steps.push({
-				kind: event.type === 'tool_call' ? 'tab' : 'thought',
-				label: eventMessage(event, payload)
-			});
+			const activity = toolActivity(payload);
+			if (!activity) return;
+			activeAssistant.steps = activeAssistant.steps.filter(
+				(step) => step.label !== 'Starting Stead brain'
+			);
+			const existing = activity.id
+				? activeAssistant.steps.find((step) => step.id === activity.id)
+				: undefined;
+			if (existing) existing.label = activity.label;
+			else activeAssistant.steps.push({ kind: 'tab', label: activity.label, id: activity.id });
 			void tick().then(pin);
 			return;
 		}
 
 		if (event.type === 'assistant_done') {
+			activeAssistant.thoughtSeconds = Math.max(
+				1,
+				Math.round((Date.now() - activeAssistant.thoughtStartedAt) / 1000)
+			);
 			if (!activeText.trim()) {
 				activeAssistant.phase = 'answering';
 				setAssistantText(
@@ -363,7 +439,11 @@ export function createChatSession(
 
 		if (event.type === 'error') {
 			activeAssistant.phase = 'answering';
-			setAssistantText(activeAssistant, eventMessage(event, payload));
+			setAssistantText(activeAssistant, friendlyError(payload));
+			activeAssistant.thoughtSeconds = Math.max(
+				1,
+				Math.round((Date.now() - activeAssistant.thoughtStartedAt) / 1000)
+			);
 			activeAssistant.phase = 'done';
 			activeAssistant = null;
 			void tick().then(pin);
@@ -420,6 +500,7 @@ export function createChatSession(
 		if (brainSessionId) return brainSessionId;
 		const session = await brain.createSession(title, opts.surface ?? 'webui');
 		brainSessionId = session.id;
+		opts.onSessionChange?.(session.id);
 		title = session.title;
 		void refreshSessions();
 		return session.id;
@@ -429,6 +510,7 @@ export function createChatSession(
 		if (streaming) return;
 		const loaded = await brain.loadSession(sessionId);
 		brainSessionId = loaded.session.id;
+		opts.onSessionChange?.(loaded.session.id);
 		title = loaded.session.title;
 		messages = restoreMessages(loaded.messages);
 		queue = [];
@@ -451,6 +533,7 @@ export function createChatSession(
 		pendingQuestion = null;
 
 		messages.push({ role: 'user', text, context });
+		if (title === 'New chat') title = suggestedTitle(text);
 		const assistant = createAssistant('Starting Stead brain');
 		messages.push(assistant);
 		// `$state` proxies objects when they enter the array. Keep the proxied
@@ -483,6 +566,7 @@ export function createChatSession(
 			activeAssistant = null;
 			await tick();
 			pin();
+			void refreshSessions();
 		}
 	}
 
@@ -516,6 +600,7 @@ export function createChatSession(
 		questionActive = false;
 		pendingQuestion = null;
 		brainSessionId = null;
+		opts.onSessionChange?.(null);
 		activeAssistant = null;
 		activeText = '';
 		title = 'New chat';
@@ -534,6 +619,9 @@ export function createChatSession(
 		},
 		get title() {
 			return title;
+		},
+		get sessionId() {
+			return brainSessionId;
 		},
 		set title(v: string) {
 			title = v;

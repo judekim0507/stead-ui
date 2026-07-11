@@ -172,13 +172,14 @@
 						{@render stepsTimeline(msg.steps, true)}
 					</div>
 				{:else}
+					{#if msg.thoughtSeconds > 0 && msg.steps.length > 0}
 					<div in:fade={{ duration: 200, easing: motionEase }} class="flex flex-col gap-2">
 						<button
 							type="button"
 							onclick={() => (msg.collapsed = !msg.collapsed)}
 							class="text-muted-foreground hover:text-foreground -ml-1 flex w-fit items-center gap-1.5 rounded-lg px-1 py-1 text-sm transition-colors"
 						>
-							<span>Thought for {msg.thoughtSeconds} seconds</span>
+								<span>Worked for {msg.thoughtSeconds} {msg.thoughtSeconds === 1 ? 'second' : 'seconds'}</span>
 							<ChevronRightIcon
 								class="size-3.5 opacity-60 transition-transform {msg.collapsed ? '' : 'rotate-90'}"
 							/>
@@ -188,8 +189,9 @@
 								{@render stepsTimeline(msg.steps, false)}
 							</div>
 						{/if}
-					</div>
-					{@render answer(msg)}
+						</div>
+					{/if}
+						{@render answer(msg)}
 				{/if}
 			</div>
 		{/if}

@@ -22,7 +22,7 @@ export type Token = {
 };
 
 export type StepKind = 'thought' | 'tab' | 'memory';
-export type Step = { kind: StepKind; label: string };
+export type Step = { kind: StepKind; label: string; id?: string };
 export type ContextRef = {
 	title: string;
 	sublabel?: string;
@@ -37,6 +37,7 @@ export type AssistantMessage = {
 	steps: Step[];
 	phase: 'thinking' | 'answering' | 'done';
 	thoughtSeconds: number;
+	thoughtStartedAt: number;
 	collapsed: boolean;
 	blocks: Block[];
 	tokens: Token[];

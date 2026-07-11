@@ -11,9 +11,10 @@
 	type Props = {
 		/** Scope the driving indicator to one tab; omit to show any driven tab. */
 		tabId?: number | null;
+		onTakeOver?: () => void;
 	};
 
-	let { tabId = null }: Props = $props();
+	let { tabId = null, onTakeOver }: Props = $props();
 
 	const control = getControlState();
 	let busyAction = $state<number | null>(null);
@@ -39,6 +40,7 @@
 		if (drivingTabId == null) return;
 		cancelling = true;
 		try {
+			onTakeOver?.();
 			await control.cancel(drivingTabId);
 		} finally {
 			cancelling = false;
@@ -70,7 +72,7 @@
 					onclick={stopDriving}
 				>
 					<SquareIcon class="size-3 fill-current" />
-					Stop
+						Take over
 				</Button>
 			</div>
 		{/if}

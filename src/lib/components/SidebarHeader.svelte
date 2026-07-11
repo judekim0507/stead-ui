@@ -4,7 +4,6 @@
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import XIcon from '@lucide/svelte/icons/x';
 	import SessionSelector from './SessionSelector.svelte';
-	import ControlConsole from './ControlConsole.svelte';
 
 	type Props = {
 		title?: string;
@@ -52,7 +51,6 @@
 
 	<!-- Right: session selector -->
 	<div class="flex shrink-0 items-center gap-1">
-		<ControlConsole tabId={currentTab?.tab_id} />
 		<Button
 			variant="ghost"
 			size="icon"

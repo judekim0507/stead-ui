@@ -39,15 +39,65 @@
 	let model = $state('claude-opus-4-6');
 	let effort = $state('High');
 	let permission = $state<AgentPermissionMode>('read');
+	let activeTabId: number | null = null;
+	let restoreVersion = 0;
+	const TAB_SESSIONS_KEY = 'stead.sidebar.sessions-by-tab.v1';
+
+	function tabSessions(): Record<string, string> {
+		try {
+			return JSON.parse(localStorage.getItem(TAB_SESSIONS_KEY) ?? '{}');
+		} catch {
+			return {};
+		}
+	}
+
+	function rememberSession(sessionId: string | null) {
+		if (currentTab?.tab_id == null) return;
+		const sessions = tabSessions();
+		if (sessionId) sessions[String(currentTab.tab_id)] = sessionId;
+		else delete sessions[String(currentTab.tab_id)];
+		localStorage.setItem(TAB_SESSIONS_KEY, JSON.stringify(sessions));
+	}
 	// ── the one shared chat engine (same code as the full chat) ──────────────
 	const chat = createChatSession({
 		pin: pinIfNear,
 		surface: 'sidebar',
-		onModelSelection: (selection) => {
-			provider = selection.provider;
-			model = selection.model;
+			onModelSelection: (selection) => {
+				provider = selection.provider;
+				model = selection.model;
+			},
+			onSessionChange: rememberSession
+		});
+
+	async function restoreTab(tab: BrainTabContext | null) {
+		const tabId = tab?.tab_id ?? null;
+		if (tabId === activeTabId) return;
+		activeTabId = tabId;
+		const version = ++restoreVersion;
+		if (chat.streaming) {
+			chat.stopStreaming();
+			for (let attempt = 0; attempt < 40 && chat.streaming && version === restoreVersion; attempt++) {
+				await new Promise((resolve) => setTimeout(resolve, 50));
+			}
 		}
-	});
+		if (tabId == null) {
+			chat.newChat();
+			return;
+		}
+		const sessionId = tabSessions()[String(tabId)];
+		if (!sessionId) {
+			chat.newChat();
+			return;
+		}
+		try {
+			await chat.loadSession(sessionId);
+		} catch {
+			if (version === restoreVersion) {
+				rememberSession(null);
+				chat.newChat();
+			}
+		}
+	}
 
 	function closeSidebar() {
 		const chromeApi = (
@@ -63,7 +113,10 @@
 		// the side panel's webview, so a light poll backs up the focus events.
 		const refresh = () =>
 			void getCurrentTabContext().then((tab) => {
-				if (tab?.tab_id !== currentTab?.tab_id || tab?.url !== currentTab?.url) currentTab = tab;
+					if (tab?.tab_id !== currentTab?.tab_id || tab?.url !== currentTab?.url) {
+						currentTab = tab;
+						void restoreTab(tab);
+					}
 			});
 		refresh();
 		const interval = setInterval(refresh, 2500);
@@ -127,7 +180,7 @@
 			</button>
 		{/if}
 
-		<PermissionBar tabId={currentTab?.tab_id ?? null} />
+			<PermissionBar tabId={currentTab?.tab_id ?? null} onTakeOver={chat.stopStreaming} />
 
 		<!-- The question tool REPLACES the reply bar while it's active -->
 		{#if chat.questionActive}
