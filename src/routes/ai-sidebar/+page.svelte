@@ -7,6 +7,7 @@
 		type BrainTabContext
 	} from '$lib/brain/bridge';
 	import { motionEase } from '$lib/motion';
+	import { getControlConsoleBridge } from '$lib/brain/controlConsole';
 	import { createChatSession } from '$lib/chatSession.svelte';
 	import SidebarHeader from '$lib/components/SidebarHeader.svelte';
 	import Conversation from '$lib/components/Conversation.svelte';
@@ -35,6 +36,7 @@
 	}
 
 	let currentTab = $state<BrainTabContext | null>(null);
+	let openTabs = $state<BrainTabContext[]>([]);
 	let provider = $state('anthropic');
 	let model = $state('claude-opus-4-6');
 	let effort = $state('High');
@@ -112,7 +114,11 @@
 		// The sidebar tracks the tab it is bound to. Tab switches don't refocus
 		// the side panel's webview, so a light poll backs up the focus events.
 		const refresh = () =>
-			void getCurrentTabContext().then((tab) => {
+			void Promise.all([
+				getCurrentTabContext(),
+				getControlConsoleBridge().getOpenTabContexts()
+			]).then(([tab, tabs]) => {
+					openTabs = tabs;
 					if (tab?.tab_id !== currentTab?.tab_id || tab?.url !== currentTab?.url) {
 						currentTab = tab;
 						void restoreTab(tab);
@@ -195,6 +201,7 @@
 			{#key currentTab?.tab_id ?? 'no-tab'}
 				<Composer
 					currentTab={currentTab}
+					{openTabs}
 					skills={chat.skills}
 					onSend={(text, context) =>
 						chat.handleSend(text, context, { provider, model, permission, tabContext: currentTab })}

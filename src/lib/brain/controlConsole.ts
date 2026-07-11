@@ -48,6 +48,7 @@ export type NativeControlConsole = {
 	cancel(tabId: number): Promise<void>;
 	/** Active tab of the profile's focused window, or null (non-web pages). */
 	getActiveTabContext(): Promise<ControlTabContext | null>;
+	getOpenTabContexts(): Promise<ControlTabContext[]>;
 };
 
 declare global {
@@ -95,6 +96,7 @@ type MojoControlRemote = {
 	respondToConfirmation(actionId: number, approve: boolean): Promise<void> | void;
 	cancel(tabId: number): Promise<void> | void;
 	getActiveTabContext?(): Promise<{ context?: RawTabContext | null }>;
+	listOpenTabContexts?(): Promise<{ contexts?: RawTabContext[] }>;
 };
 
 type MojoControlModule = {
@@ -242,6 +244,18 @@ class MojoControlConsole implements NativeControlConsole {
 		}
 	}
 
+	async getOpenTabContexts() {
+		if (!this.remote.listOpenTabContexts) return [];
+		try {
+			const response = await this.remote.listOpenTabContexts();
+			return (response.contexts ?? [])
+				.map(normalizeTabContext)
+				.filter((context): context is ControlTabContext => context != null);
+		} catch {
+			return [];
+		}
+	}
+
 	private emit(event: ControlConsoleEvent) {
 		for (const listener of this.listeners) listener(event);
 	}
@@ -287,6 +301,10 @@ class LazyNativeControlConsole implements NativeControlConsole {
 	async getActiveTabContext() {
 		return (await this.getNative()).getActiveTabContext();
 	}
+
+	async getOpenTabContexts() {
+		return (await this.getNative()).getOpenTabContexts();
+	}
 }
 
 class FakeControlConsole implements NativeControlConsole {
@@ -324,6 +342,10 @@ class FakeControlConsole implements NativeControlConsole {
 
 	async getActiveTabContext() {
 		return null;
+	}
+
+	async getOpenTabContexts() {
+		return [];
 	}
 
 	private emit(event: ControlConsoleEvent) {

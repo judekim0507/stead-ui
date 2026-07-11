@@ -43,6 +43,7 @@
 		contextUrl?: string;
 		contextFavicon?: string;
 		currentTab?: BrainTabContext | null;
+		openTabs?: BrainTabContext[];
 		skills?: BrainSkillInfo[];
 		placeholder?: string;
 		mentionGroups?: MentionGroup[];
@@ -59,6 +60,7 @@
 		contextUrl = '',
 		contextFavicon = '',
 		currentTab = null,
+		openTabs = [],
 		skills = [],
 		placeholder = 'Ask or do anything…',
 		mentionGroups = [],
@@ -75,22 +77,26 @@
 	// passes in. No canned samples.
 	let allMentionGroups = $derived.by(() => {
 		const groups: MentionGroup[] = [];
-		if (currentTab) {
-			const favicon = contextFavicon || faviconUrlForPage(currentTab.url);
+		const tabItems = [currentTab, ...openTabs]
+			.filter((tab): tab is BrainTabContext => tab != null)
+			.filter((tab, index, tabs) => tabs.findIndex((other) => other.tab_id === tab.tab_id) === index)
+			.map((tab) => ({
+				id: `tab-${tab.tab_id}`,
+				label: tab.title || (tab.tab_id === currentTab?.tab_id ? 'Current tab' : 'Untitled tab'),
+				sublabel: tab.url,
+				favicon:
+					tab.tab_id === currentTab?.tab_id && contextFavicon
+						? contextFavicon
+						: faviconUrlForPage(tab.url),
+				kind: 'tab' as const,
+				tab_id: tab.tab_id,
+				url: tab.url
+			}));
+		if (tabItems.length) {
 			groups.push({
 				type: 'Tabs',
 				icon: AppWindowIcon,
-				items: [
-					{
-						id: `tab-${currentTab.tab_id}`,
-						label: currentTab.title || 'Current tab',
-						sublabel: currentTab.url,
-						favicon,
-						kind: 'tab',
-						tab_id: currentTab.tab_id,
-						url: currentTab.url
-					}
-				]
+				items: tabItems
 			});
 		}
 		if (skills.length) {
@@ -308,7 +314,7 @@
 		textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
 	}
 
-	function send() {
+	async function send() {
 		if (!canSend) return;
 		const wasStreaming = streaming; // capture before onSend flips streaming on
 		const context = contextItems.map((c) => ({
@@ -322,6 +328,7 @@
 		if (!wasStreaming) beamSignal += 1; // beam a fresh send; queued messages don't beam
 		value = '';
 		mentionOpen = false;
+		await tick();
 		autosize();
 		textarea?.focus(); // keep focus after sending / queueing
 	}

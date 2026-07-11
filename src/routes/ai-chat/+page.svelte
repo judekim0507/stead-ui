@@ -7,6 +7,7 @@
 		type BrainTabContext
 	} from '$lib/brain/bridge';
 	import { motionEase } from '$lib/motion';
+	import { getControlConsoleBridge } from '$lib/brain/controlConsole';
 	import { createChatSession } from '$lib/chatSession.svelte';
 	import Conversation from '$lib/components/Conversation.svelte';
 	import Composer from '$lib/components/Composer.svelte';
@@ -33,6 +34,7 @@
 
 	// model / permission selectors are page-local
 	let currentTab = $state<BrainTabContext | null>(null);
+	let openTabs = $state<BrainTabContext[]>([]);
 	let permission = $state<AgentPermissionMode>('full');
 	let provider = $state('anthropic');
 	let model = $state('claude-opus-4-6');
@@ -47,9 +49,12 @@
 		}
 	});
 
-	onMount(() => {
+		onMount(() => {
 		void (async () => {
-			currentTab = await getCurrentTabContext();
+			[currentTab, openTabs] = await Promise.all([
+				getCurrentTabContext(),
+				getControlConsoleBridge().getOpenTabContexts()
+			]);
 			const params = new URLSearchParams(window.location.search);
 			const sessionId = params.get('session');
 			const prompt = params.get('prompt');
@@ -151,6 +156,7 @@
 							placeholder="Reply, @ for context"
 							showContext={false}
 							currentTab={currentTab}
+							{openTabs}
 							skills={chat.skills}
 							streaming={chat.streaming}
 							onSend={(text, context) =>
