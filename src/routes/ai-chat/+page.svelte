@@ -78,6 +78,15 @@
 				`width:${t * w}px; min-width:0; overflow:hidden; opacity:${Math.min(1, t * 1.6)};`
 		};
 	}
+
+	function continueAfterApproval(operation: string) {
+		chat.handleSend(`Approved ${operation}. Retry the action now.`, [], {
+			provider,
+			model,
+			permission,
+			tabContext: currentTab
+		});
+	}
 </script>
 
 <svelte:head>
@@ -140,7 +149,7 @@
 			<!-- The question tool REPLACES the reply bar while it's active -->
 			<div class="mx-auto w-full px-4 pb-1" style="max-width: 720px;">
 				<div class="pb-2 empty:hidden">
-					<PermissionBar />
+					<PermissionBar onApproved={(request) => continueAfterApproval(request.operation)} />
 				</div>
 				{#if chat.questionActive}
 					<div transition:fly={{ y: 12, duration: 260, easing: motionEase }}>

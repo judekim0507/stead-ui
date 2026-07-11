@@ -12,9 +12,10 @@
 		/** Scope the driving indicator to one tab; omit to show any driven tab. */
 		tabId?: number | null;
 		onTakeOver?: () => void;
+		onApproved?: (request: ControlConfirmation) => void;
 	};
 
-	let { tabId = null, onTakeOver }: Props = $props();
+	let { tabId = null, onTakeOver, onApproved }: Props = $props();
 
 	const control = getControlState();
 	let busyAction = $state<number | null>(null);
@@ -31,6 +32,7 @@
 		busyAction = request.action_id;
 		try {
 			await control.respond(request, approve);
+			if (approve) onApproved?.(request);
 		} finally {
 			busyAction = null;
 		}

@@ -110,6 +110,15 @@
 		chromeApi?.send?.('closeSteadSidebar');
 	}
 
+	function continueAfterApproval(operation: string) {
+		chat.handleSend(`Approved ${operation}. Retry the action now.`, [], {
+			provider,
+			model,
+			permission,
+			tabContext: currentTab
+		});
+	}
+
 	onMount(() => {
 		// The sidebar tracks the tab it is bound to. Tab switches don't refocus
 		// the side panel's webview, so a light poll backs up the focus events.
@@ -186,7 +195,11 @@
 			</button>
 		{/if}
 
-			<PermissionBar tabId={currentTab?.tab_id ?? null} onTakeOver={chat.stopStreaming} />
+			<PermissionBar
+				tabId={currentTab?.tab_id ?? null}
+				onTakeOver={chat.stopStreaming}
+				onApproved={(request) => continueAfterApproval(request.operation)}
+			/>
 
 		<!-- The question tool REPLACES the reply bar while it's active -->
 		{#if chat.questionActive}

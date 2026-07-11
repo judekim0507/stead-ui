@@ -35,7 +35,12 @@ function ensureStarted() {
 				event.entry,
 				...audit.filter((candidate) => candidate.action_id !== event.entry.action_id)
 			].slice(0, MAX_AUDIT);
-			pending = pending.filter((candidate) => candidate.action_id !== event.entry.action_id);
+			// The broker records the initial needs_confirmation result immediately
+			// after announcing it. Keep the prompt until an approved/denied audit
+			// arrives; otherwise the UI removes it before the next paint.
+			if (event.entry.code !== 'needs_confirmation') {
+				pending = pending.filter((candidate) => candidate.action_id !== event.entry.action_id);
+			}
 		} else if (event.type === 'cancelled') {
 			lastCancelled = event.tab_id;
 			if (drivingTabs[event.tab_id]) drivingTabs = { ...drivingTabs, [event.tab_id]: false };
