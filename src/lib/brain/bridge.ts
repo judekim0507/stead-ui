@@ -20,6 +20,19 @@ export type BrainSessionInfo = {
 	path: string;
 };
 
+export type BrainSessionMessage = {
+	role: string;
+	content: string;
+	created_at: string;
+	metadata: Record<string, unknown>;
+};
+
+export type BrainLoadedSession = {
+	session: BrainSessionInfo;
+	messages: BrainSessionMessage[];
+	model?: BrainModelSelection;
+};
+
 export type ProviderAuthStatus = {
 	provider: string;
 	configured: boolean;
@@ -685,8 +698,13 @@ class BrainBridge {
 		this.assertAccepted(accepted);
 		return this.waitFor(accepted.request_id, (event, payload) => {
 			if (event.type !== 'session_loaded') return;
-			const session = (payload as { session?: BrainSessionInfo }).session;
-			return session;
+			const loaded = payload as Partial<BrainLoadedSession>;
+			if (!loaded.session) return;
+			return {
+				session: loaded.session,
+				messages: loaded.messages ?? [],
+				model: loaded.model
+			};
 		});
 	}
 
@@ -959,7 +977,9 @@ class FakeBrainConsole implements NativeBrainConsole {
 			this.sessions.find((candidate) => candidate.id === sessionId) ??
 			this.sessionInfo(sessionId, 'Loaded chat', new Date());
 		this.emit(requestId, sessionId, 'session_loaded', {
-			session
+			session,
+			messages: [],
+			model: { provider: 'openai-codex', model: 'gpt-5.4' }
 		});
 		return this.accepted(requestId);
 	}

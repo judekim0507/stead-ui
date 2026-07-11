@@ -131,17 +131,21 @@
 		{#if msg.role === 'user'}
 			<div class="flex flex-col items-end gap-1.5">
 				{#if msg.context?.length}
-					<div class="flex max-w-[88%] flex-wrap justify-end gap-1.5">
+					<div class="flex w-full max-w-[88%] flex-wrap justify-end gap-1.5 overflow-hidden">
 						{#each msg.context as c (c.title)}
-							<div class="surface-raised flex items-center gap-2 rounded-xl py-1 pr-2.5 pl-1">
-								<div class="grid size-7 shrink-0 place-items-center rounded-md bg-white/[0.07]">
+							<div class="surface-raised flex min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-xl py-1 pr-2.5 pl-1">
+								<div class="relative grid size-7 shrink-0 place-items-center rounded-md bg-white/[0.07]">
+									<GlobeIcon class="text-muted-foreground size-4" />
 									{#if c.favicon}
-										<img src={c.favicon} alt="" class="size-4" />
-									{:else}
-										<GlobeIcon class="text-muted-foreground size-4" />
+										<img
+											src={c.favicon}
+											alt=""
+											class="bg-muted absolute size-4"
+											onerror={(event) => ((event.currentTarget as HTMLImageElement).hidden = true)}
+										/>
 									{/if}
 								</div>
-								<div class="min-w-0">
+								<div class="min-w-0 flex-1 overflow-hidden">
 									<p class="text-foreground truncate text-[13px] leading-tight font-semibold">
 										{c.title}
 									</p>

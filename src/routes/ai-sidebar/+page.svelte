@@ -34,13 +34,20 @@
 		if (scrollHeight - (scrollTop + clientHeight) < 160) scrollToBottom(false);
 	}
 
-	// ── the one shared chat engine (same code as the full chat) ──────────────
-	const chat = createChatSession({ pin: pinIfNear, surface: 'sidebar' });
 	let currentTab = $state<BrainTabContext | null>(null);
 	let provider = $state('anthropic');
 	let model = $state('claude-opus-4-6');
 	let effort = $state('High');
 	let permission = $state<AgentPermissionMode>('read');
+	// ── the one shared chat engine (same code as the full chat) ──────────────
+	const chat = createChatSession({
+		pin: pinIfNear,
+		surface: 'sidebar',
+		onModelSelection: (selection) => {
+			provider = selection.provider;
+			model = selection.model;
+		}
+	});
 
 	function closeSidebar() {
 		const chromeApi = (

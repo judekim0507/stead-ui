@@ -3,7 +3,7 @@
 	import { fly, scale, slide } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
 	import { motionEase } from '$lib/motion';
-	import type { ContextRef } from '$lib/chat';
+	import { faviconUrlForPage, type ContextRef } from '$lib/chat';
 	import type { BrainSkillInfo, BrainTabContext } from '$lib/brain/bridge';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import BorderBeam from './BorderBeam.svelte';
@@ -76,6 +76,7 @@
 	let allMentionGroups = $derived.by(() => {
 		const groups: MentionGroup[] = [];
 		if (currentTab) {
+			const favicon = contextFavicon || faviconUrlForPage(currentTab.url);
 			groups.push({
 				type: 'Tabs',
 				icon: AppWindowIcon,
@@ -84,6 +85,7 @@
 						id: `tab-${currentTab.tab_id}`,
 						label: currentTab.title || 'Current tab',
 						sublabel: currentTab.url,
+						favicon,
 						kind: 'tab',
 						tab_id: currentTab.tab_id,
 						url: currentTab.url
@@ -123,7 +125,7 @@
 				id: `tab-${currentTab.tab_id}`,
 				title: currentTab.title || contextTitle,
 				sublabel: currentTab.url || contextUrl,
-				favicon: contextFavicon,
+				favicon: contextFavicon || faviconUrlForPage(currentTab.url),
 				tab_id: currentTab.tab_id,
 				url: currentTab.url,
 				kind: 'tab'
@@ -410,27 +412,33 @@
 		</div>
 	{/if}
 
-	<!-- Context row: current tab + mentioned tabs / uploaded files (scrolls horizontally) -->
+	<!-- Context row: cards stay inside the sidebar and clip long page metadata. -->
 	{#if contextItems.length}
-		<div transition:slide={{ duration: 240, easing: motionEase }} class="overflow-hidden">
-			<div class="scrollbar-none mb-2 flex gap-1.5 overflow-x-auto">
+		<div transition:slide={{ duration: 240, easing: motionEase }} class="min-w-0 overflow-hidden">
+			<div class="mb-2 flex min-w-0 flex-col gap-1.5 overflow-hidden">
 				{#each contextItems as item (item.id)}
 				<div
 					in:scale={{ duration: 220, start: 0.9, opacity: 0, easing: motionEase }}
 					out:scale={{ duration: 220, start: 0.9, opacity: 0, easing: motionEase }}
 					animate:flip={{ duration: 300, easing: motionEase }}
-					class="group surface-raised flex shrink-0 items-center gap-2.5 rounded-2xl py-1.5 pr-2 pl-1.5"
+					class="group surface-raised flex min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-2xl py-1.5 pr-2 pl-1.5"
 				>
-					<div class="grid size-9 shrink-0 place-items-center rounded-lg bg-white/[0.07]">
+					<div class="relative grid size-9 shrink-0 place-items-center rounded-lg bg-white/[0.07]">
 						{#if item.kind === 'file'}
 							<FileIcon class="text-muted-foreground size-5" />
-						{:else if item.favicon}
-							<img src={item.favicon} alt="" class="size-5" />
 						{:else}
 							<AppWindowIcon class="text-muted-foreground size-5" />
 						{/if}
+						{#if item.kind !== 'file' && item.favicon}
+							<img
+								src={item.favicon}
+								alt=""
+								class="bg-muted absolute size-5"
+								onerror={(event) => ((event.currentTarget as HTMLImageElement).hidden = true)}
+							/>
+						{/if}
 					</div>
-					<div class="min-w-0 max-w-[150px]">
+					<div class="min-w-0 flex-1 overflow-hidden">
 						<p class="text-foreground truncate text-[15px] leading-tight font-semibold">
 							{item.title}
 						</p>
@@ -442,7 +450,7 @@
 						type="button"
 						onclick={() => removeContextItem(item.id)}
 						aria-label="Remove from context"
-						class="text-muted-foreground hover:text-foreground ml-1 grid size-5 shrink-0 place-items-center rounded-full opacity-0 transition group-hover:opacity-100 hover:bg-white/10 focus-visible:opacity-100"
+						class="text-muted-foreground hover:text-foreground ml-1 grid size-5 shrink-0 place-items-center rounded-full opacity-60 transition hover:bg-white/10 hover:opacity-100 focus-visible:opacity-100"
 					>
 						<XIcon class="size-3.5" />
 					</button>

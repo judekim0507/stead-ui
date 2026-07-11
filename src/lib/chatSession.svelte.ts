@@ -2,6 +2,7 @@ import { tick } from 'svelte';
 import {
 	blocksFromText,
 	buildTokens,
+	faviconUrlForPage,
 	type AssistantMessage,
 	type ContextRef,
 	type Message
@@ -11,6 +12,7 @@ import {
 	type AgentPermissionMode,
 	type BrainConsoleEvent,
 	type BrainModelSelection,
+	type BrainSessionMessage,
 	type BrainSessionInfo,
 	type BrainSkillInfo,
 	type BrainTabContext
@@ -116,6 +118,48 @@ function setAssistantText(message: AssistantMessage, text: string) {
 	message.revealed = message.tokens.length;
 }
 
+function restoredContext(message: BrainSessionMessage): ContextRef[] {
+	const raw = message.metadata.tab_context;
+	if (!raw || typeof raw !== 'object') return [];
+	const tab = raw as Record<string, unknown>;
+	const tabId = typeof tab.tab_id === 'number' ? tab.tab_id : undefined;
+	const url = typeof tab.url === 'string' ? tab.url : '';
+	const title = typeof tab.title === 'string' && tab.title ? tab.title : url;
+	if (tabId === undefined || !title) return [];
+	return [
+		{
+			title,
+			sublabel: url,
+			favicon: faviconUrlForPage(url),
+			tab_id: tabId,
+			url
+		}
+	];
+}
+
+function restoreMessages(stored: BrainSessionMessage[]): Message[] {
+	const restored: Message[] = [];
+	for (const message of stored) {
+		if (message.role === 'user') {
+			restored.push({ role: 'user', text: message.content, context: restoredContext(message) });
+			continue;
+		}
+		if (message.role !== 'assistant') continue;
+		const visibleText = message.content
+			.split('\n')
+			.filter((line) => !line.trimStart().startsWith('[tool_call:'))
+			.join('\n')
+			.trim();
+		if (!visibleText) continue;
+		const assistant = createAssistant('Completed');
+		assistant.phase = 'done';
+		assistant.thoughtSeconds = 0;
+		setAssistantText(assistant, visibleText);
+		restored.push(assistant);
+	}
+	return restored;
+}
+
 function eventMessage(event: BrainConsoleEvent, payload: unknown) {
 	const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
 	if (typeof record.message === 'string') return record.message;
@@ -201,7 +245,13 @@ function parseAskUserPrompt(
  * browser-owned brain bridge. In normal Vite dev, that bridge is a tiny fake;
  * in Stead WebUI it is backed by BrainConsole.
  */
-export function createChatSession(opts: { pin?: () => void; surface?: string } = {}) {
+export function createChatSession(
+	opts: {
+		pin?: () => void;
+		surface?: string;
+		onModelSelection?: (selection: BrainModelSelection) => void;
+	} = {}
+) {
 	let messages = $state<Message[]>([]);
 	let queue = $state<QueuedTurn[]>([]);
 	let streaming = $state(false);
@@ -298,6 +348,13 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 		}
 
 		if (event.type === 'assistant_done') {
+			if (!activeText.trim()) {
+				activeAssistant.phase = 'answering';
+				setAssistantText(
+					activeAssistant,
+					'Stead completed the turn without producing an answer. Please retry.'
+				);
+			}
 			activeAssistant.phase = 'done';
 			activeAssistant = null;
 			void tick().then(pin);
@@ -370,10 +427,10 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 
 	async function loadSession(sessionId: string) {
 		if (streaming) return;
-		const session = await brain.loadSession(sessionId);
-		brainSessionId = session.id;
-		title = session.title;
-		messages = [];
+		const loaded = await brain.loadSession(sessionId);
+		brainSessionId = loaded.session.id;
+		title = loaded.session.title;
+		messages = restoreMessages(loaded.messages);
 		queue = [];
 		artifacts = [];
 		agentTab = null;
@@ -382,6 +439,10 @@ export function createChatSession(opts: { pin?: () => void; surface?: string } =
 		pendingQuestion = null;
 		activeAssistant = null;
 		activeText = '';
+		if (loaded.model) opts.onModelSelection?.(loaded.model);
+		await tick();
+		pin();
+		return loaded;
 	}
 
 	async function streamOne(text: string, context: ContextRef[], options?: SendOptions) {

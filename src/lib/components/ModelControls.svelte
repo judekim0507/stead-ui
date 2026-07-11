@@ -95,6 +95,7 @@
 	let apiKeyOpen = $state(false);
 	let apiKeyDraft = $state('');
 	let authError = $state<string | null>(null);
+	let restoredLastSelection = $state(false);
 	let providerAuth = $derived(
 		authStatuses.find((s) => s.provider === provider) ??
 			(selectedProvider
@@ -182,6 +183,18 @@
 	}
 
 	onMount(() => {
+		try {
+			const saved = JSON.parse(localStorage.getItem('stead:last-model-selection') ?? 'null') as
+				| { provider?: string; model?: string }
+				| null;
+			if (saved?.provider && saved.model) {
+				provider = saved.provider;
+				model = saved.model;
+			}
+		} catch {
+			// Ignore corrupt or unavailable local storage and use the catalog default.
+		}
+		restoredLastSelection = true;
 		void refreshAll();
 		return brain.subscribe((event, payload) => {
 			if (event.type === 'model_catalog') {
@@ -199,6 +212,11 @@
 				if (status) authStatuses = [...authStatuses.filter((s) => s.provider !== status.provider), status];
 			}
 		});
+	});
+
+	$effect(() => {
+		if (!restoredLastSelection || !provider || !model) return;
+		localStorage.setItem('stead:last-model-selection', JSON.stringify({ provider, model }));
 	});
 
 	async function connectOAuth() {

@@ -31,15 +31,21 @@
 			scrollEl.scrollTo({ top: scrollEl.scrollHeight });
 	}
 
-	// ── the one shared chat engine ───────────────────────────────────────────
-	const chat = createChatSession({ pin: pinIfNear, surface: 'chat' });
-	let currentTab = $state<BrainTabContext | null>(null);
-
 	// model / permission selectors are page-local
+	let currentTab = $state<BrainTabContext | null>(null);
 	let permission = $state<AgentPermissionMode>('full');
 	let provider = $state('anthropic');
 	let model = $state('claude-opus-4-6');
 	let effort = $state('High');
+	// ── the one shared chat engine ───────────────────────────────────────────
+	const chat = createChatSession({
+		pin: pinIfNear,
+		surface: 'chat',
+		onModelSelection: (selection) => {
+			provider = selection.provider;
+			model = selection.model;
+		}
+	});
 
 	onMount(() => {
 		void (async () => {
