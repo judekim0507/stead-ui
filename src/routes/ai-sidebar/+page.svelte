@@ -121,10 +121,12 @@
 	}
 
 	function openFullChat() {
-		const params = new URLSearchParams();
-		if (chat.sessionId) params.set('session', chat.sessionId);
-		const query = params.toString();
-		window.open(`chrome://chat/ai-chat${query ? `?${query}` : ''}`, '_blank', 'noopener');
+		const chromeApi = (
+			globalThis as typeof globalThis & {
+				chrome?: { send?: (message: string, args?: unknown[]) => void };
+			}
+		).chrome;
+		chromeApi?.send?.('openSteadFullChat', chat.sessionId ? [chat.sessionId] : []);
 	}
 
 	function continueAfterApproval(operation: string) {
