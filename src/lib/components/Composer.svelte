@@ -310,9 +310,13 @@
 
 	function autosize() {
 		if (!textarea) return;
-		// Measure from zero so a previously tall composer can shrink after send.
-		// The resulting height remains entirely content-driven.
-		textarea.style.height = '0px';
+		// Empty input uses the textarea's natural one-row height. Re-measuring an
+		// empty textarea can preserve the previous scroll box after a long send.
+		if (!value) {
+			textarea.style.removeProperty('height');
+			return;
+		}
+		textarea.style.height = 'auto';
 		textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
 	}
 
@@ -430,7 +434,7 @@
 					in:scale={{ duration: 220, start: 0.9, opacity: 0, easing: motionEase }}
 					out:scale={{ duration: 220, start: 0.9, opacity: 0, easing: motionEase }}
 					animate:flip={{ duration: 300, easing: motionEase }}
-					class="group surface-raised flex w-full min-w-0 max-w-[78%] items-center gap-2.5 overflow-hidden rounded-2xl py-1.5 pr-2 pl-1.5"
+					class="group surface-raised flex w-full min-w-0 max-w-[68%] items-center gap-2.5 overflow-hidden rounded-2xl py-1.5 pr-2 pl-1.5"
 				>
 					<div class="relative grid size-9 shrink-0 place-items-center rounded-lg bg-white/[0.07]">
 						{#if item.kind === 'file'}
