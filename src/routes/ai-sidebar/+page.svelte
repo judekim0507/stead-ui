@@ -76,17 +76,23 @@
 		if (tabId === activeTabId) return;
 		activeTabId = tabId;
 		const version = ++restoreVersion;
+		const sessionId =
+			tab?.owner_session_id || (tabId == null ? undefined : tabSessions()[String(tabId)]);
+		if (tab?.owner_session_id) rememberSession(tab.owner_session_id);
+		if (sessionId && sessionId === chat.sessionId) return;
 		if (chat.streaming) {
-			chat.stopStreaming();
-			for (let attempt = 0; attempt < 40 && chat.streaming && version === restoreVersion; attempt++) {
+			// A tab switch must never cancel a turn. Agent-created tabs share the
+			// owner session and return above; unrelated tabs restore after the
+			// background turn completes if they are still active.
+			while (chat.streaming && version === restoreVersion) {
 				await new Promise((resolve) => setTimeout(resolve, 50));
 			}
 		}
+		if (version !== restoreVersion) return;
 		if (tabId == null) {
 			chat.newChat();
 			return;
 		}
-		const sessionId = tabSessions()[String(tabId)];
 		if (!sessionId) {
 			chat.newChat();
 			return;
@@ -134,7 +140,7 @@
 					}
 			});
 		refresh();
-		const interval = setInterval(refresh, 2500);
+		const interval = setInterval(refresh, 500);
 		window.addEventListener('focus', refresh);
 		document.addEventListener('visibilitychange', refresh);
 		return () => {

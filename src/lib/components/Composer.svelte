@@ -310,11 +310,9 @@
 
 	function autosize() {
 		if (!textarea) return;
-		if (!value) {
-			textarea.style.height = '22px';
-			return;
-		}
-		textarea.style.height = 'auto';
+		// Measure from zero so a previously tall composer can shrink after send.
+		// The resulting height remains entirely content-driven.
+		textarea.style.height = '0px';
 		textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
 	}
 

@@ -33,6 +33,8 @@ export type ControlTabContext = {
 	tab_id: number;
 	url: string;
 	title: string;
+	agent_owned: boolean;
+	owner_session_id: string;
 };
 
 export type ControlConsoleEvent =
@@ -87,6 +89,10 @@ type RawTabContext = {
 	tab_id?: number;
 	url?: string;
 	title?: string;
+	agentOwned?: boolean;
+	agent_owned?: boolean;
+	ownerSessionId?: string;
+	owner_session_id?: string;
 };
 
 type MojoControlRemote = {
@@ -192,7 +198,9 @@ function normalizeTabContext(context: RawTabContext | null | undefined): Control
 	return {
 		tab_id: tabId,
 		url: context.url ?? '',
-		title: context.title ?? ''
+		title: context.title ?? '',
+		agent_owned: context.agent_owned ?? context.agentOwned ?? false,
+		owner_session_id: context.owner_session_id ?? context.ownerSessionId ?? ''
 	};
 }
 

@@ -81,6 +81,8 @@ export type BrainTabContext = {
 	tab_id: number;
 	url: string;
 	title: string;
+	agent_owned?: boolean;
+	owner_session_id?: string;
 };
 
 export type BrainSkillInfo = {
@@ -356,7 +358,12 @@ function normalizeTabContext(value: unknown): BrainTabContext | null {
 	return {
 		tab_id: tabId,
 		url: typeof record.url === 'string' ? record.url : '',
-		title: typeof record.title === 'string' ? record.title : ''
+		title: typeof record.title === 'string' ? record.title : '',
+		agent_owned: record.agent_owned === true || record.agentOwned === true,
+		owner_session_id:
+			typeof (record.owner_session_id ?? record.ownerSessionId) === 'string'
+				? String(record.owner_session_id ?? record.ownerSessionId)
+				: ''
 	};
 }
 
@@ -389,7 +396,7 @@ export async function getCurrentTabContext(): Promise<BrainTabContext | null> {
 	// focused window (null for non-web pages and outside chrome://).
 	try {
 		const context = await getControlConsoleBridge().getActiveTabContext();
-		if (context) return { tab_id: context.tab_id, url: context.url, title: context.title };
+		if (context) return { ...context };
 	} catch {
 		// fall through to the extension-style API if it exists
 	}
