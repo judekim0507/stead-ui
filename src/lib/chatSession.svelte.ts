@@ -5,7 +5,8 @@ import {
 	faviconUrlForPage,
 	type AssistantMessage,
 	type ContextRef,
-	type Message
+	type Message,
+	type Step
 } from './chat';
 import {
 	getBrainBridge,
@@ -177,6 +178,32 @@ const TOOL_ACTIVITY: Record<string, { running: string; done: string }> = {
 	browser_click: { running: 'Selecting an item on the page', done: 'Selected an item on the page' },
 	'browser.fill': { running: 'Entering information', done: 'Entered information' },
 	browser_fill: { running: 'Entering information', done: 'Entered information' },
+	'browser.scroll': { running: 'Scrolling the page', done: 'Scrolled the page' },
+	browser_scroll: { running: 'Scrolling the page', done: 'Scrolled the page' },
+	'browser.scroll_into_view': {
+		running: 'Bringing the target into view',
+		done: 'Brought the target into view'
+	},
+	browser_scroll_into_view: {
+		running: 'Bringing the target into view',
+		done: 'Brought the target into view'
+	},
+	'browser.screenshot': { running: 'Inspecting the page visually', done: 'Inspected the page visually' },
+	browser_screenshot: { running: 'Inspecting the page visually', done: 'Inspected the page visually' },
+	'browser.key': { running: 'Using the keyboard', done: 'Used the keyboard' },
+	browser_key: { running: 'Using the keyboard', done: 'Used the keyboard' },
+	'browser.focus': { running: 'Focusing the requested control', done: 'Focused the requested control' },
+	browser_focus: { running: 'Focusing the requested control', done: 'Focused the requested control' },
+	'browser.close_tab': { running: 'Closing a tab', done: 'Closed a tab' },
+	browser_close_tab: { running: 'Closing a tab', done: 'Closed a tab' },
+	'browser.probe_node': { running: 'Inspecting a page element', done: 'Inspected a page element' },
+	browser_probe_node: { running: 'Inspecting a page element', done: 'Inspected a page element' },
+	'browser.eval': { running: 'Inspecting page data', done: 'Inspected page data' },
+	browser_eval: { running: 'Inspecting page data', done: 'Inspected page data' },
+	'browser.mouse_click': { running: 'Clicking the page', done: 'Clicked the page' },
+	browser_mouse_click: { running: 'Clicking the page', done: 'Clicked the page' },
+	'browser.mouse_drag': { running: 'Dragging on the page', done: 'Dragged on the page' },
+	browser_mouse_drag: { running: 'Dragging on the page', done: 'Dragged on the page' },
 	'files.read': { running: 'Reading a session file', done: 'Read a session file' },
 	files_read: { running: 'Reading a session file', done: 'Read a session file' },
 	'files.write': { running: 'Creating a session file', done: 'Created a session file' },
@@ -238,25 +265,115 @@ function restoredContext(message: BrainSessionMessage): ContextRef[] {
 
 function restoreMessages(stored: BrainSessionMessage[]): Message[] {
 	const restored: Message[] = [];
-	for (const message of stored) {
+	let assistant: AssistantMessage | null = null;
+	let turnStartedAt = 0;
+	let turnUpdatedAt = 0;
+
+	function currentAssistant() {
+		if (assistant) return assistant;
+		assistant = createAssistant('');
+		assistant.steps = [];
+		assistant.phase = 'done';
+		assistant.thoughtStartedAt = turnStartedAt;
+		restored.push(assistant);
+		return assistant;
+	}
+
+	function finishTurn() {
+		if (!assistant) return;
+		assistant.thoughtSeconds =
+			turnStartedAt && turnUpdatedAt
+				? Math.max(1, Math.round((turnUpdatedAt - turnStartedAt) / 1000))
+				: 0;
+		assistant = null;
+		turnStartedAt = 0;
+		turnUpdatedAt = 0;
+	}
+
+	function storedToolCall(message: BrainSessionMessage) {
+		const blocks = Array.isArray(message.metadata.content_blocks)
+			? message.metadata.content_blocks
+			: [];
+		const block = blocks.find(
+			(candidate) =>
+				candidate &&
+				typeof candidate === 'object' &&
+				(candidate as Record<string, unknown>).type === 'toolCall'
+		) as Record<string, unknown> | undefined;
+		if (block && typeof block.name === 'string') {
+			return {
+				id: typeof block.id === 'string' ? block.id : undefined,
+				name: block.name
+			};
+		}
+		const match = message.content.match(/^\[tool_call:([^\s\]]+)/);
+		return match ? { id: undefined, name: match[1] } : null;
+	}
+
+	function hasLaterTool(index: number) {
+		for (let next = index + 1; next < stored.length; next += 1) {
+			if (stored[next].role === 'user') return false;
+			if (stored[next].role === 'tool' || storedToolCall(stored[next])) return true;
+		}
+		return false;
+	}
+
+	for (const [index, message] of stored.entries()) {
 		if (message.role === 'user') {
+			finishTurn();
 			restored.push({ role: 'user', text: message.content, context: restoredContext(message) });
+			turnStartedAt = Date.parse(message.created_at) || 0;
+			continue;
+		}
+		turnUpdatedAt = Date.parse(message.created_at) || turnUpdatedAt;
+		if (message.role === 'tool') {
+			const toolName =
+				typeof message.metadata.tool_name === 'string' ? message.metadata.tool_name : '';
+			const toolId =
+				typeof message.metadata.tool_call_id === 'string'
+					? message.metadata.tool_call_id
+					: undefined;
+			const activity = toolActivity({ name: toolName, tool_call_id: toolId, status: 'completed' });
+			if (!activity) continue;
+			const target = currentAssistant();
+			const existing = activity.id
+				? target.steps.find((step) => step.id === activity.id)
+				: undefined;
+			if (existing) existing.label = activity.label;
+			else target.steps.push({ kind: 'tab', label: activity.label, id: activity.id });
 			continue;
 		}
 		if (message.role !== 'assistant') continue;
+		const call = storedToolCall(message);
+		if (call) {
+			const activity = toolActivity({
+				name: call.name,
+				tool_call_id: call.id,
+				status: 'running'
+			});
+			if (activity) {
+				currentAssistant().steps.push({
+					kind: 'tab',
+					label: activity.label,
+					id: activity.id
+				});
+			}
+			continue;
+		}
 		const visibleText = message.content
 			.split('\n')
 			.filter((line) => !line.trimStart().startsWith('[tool_call:'))
 			.join('\n')
 			.trim();
 		if (!visibleText) continue;
-		const assistant = createAssistant('Completed');
-		assistant.phase = 'done';
-		assistant.thoughtSeconds = 0;
-		assistant.thoughtStartedAt = 0;
-		setAssistantText(assistant, visibleText);
-		restored.push(assistant);
+		const target = currentAssistant();
+		if (hasLaterTool(index)) {
+			target.steps.push({ kind: 'thought', label: visibleText });
+		} else {
+			setAssistantText(target, visibleText);
+		}
 	}
+	finishTurn();
 	return restored;
 }
 
@@ -365,6 +482,8 @@ export function createChatSession(
 	let sessionsError = $state<string | null>(null);
 	let activeAssistant: AssistantMessage | null = null;
 	let activeText = '';
+	let activeNarrationStep: Step | null = null;
+	let narrationSequence = 0;
 
 	let questionActive = $state(false);
 	let pendingQuestion = $state<PendingQuestionPrompt | null>(null);
@@ -434,12 +553,20 @@ export function createChatSession(
 			activeAssistant.steps = activeAssistant.steps.filter(
 				(step) => step.label !== 'Starting Stead brain'
 			);
-			activeAssistant.phase = 'answering';
+			if (!activeNarrationStep) {
+				activeNarrationStep = {
+					kind: 'thought',
+					label: '',
+					id: `narration-${++narrationSequence}`
+				};
+				activeAssistant.steps.push(activeNarrationStep);
+			}
+			activeNarrationStep.label = activeText.trim();
+			activeAssistant.phase = 'thinking';
 			activeAssistant.thoughtSeconds = Math.max(
 				1,
 				Math.round((Date.now() - activeAssistant.thoughtStartedAt) / 1000)
 			);
-			setAssistantText(activeAssistant, activeText);
 			persistLiveTurn();
 			void tick().then(pin);
 			return;
@@ -456,6 +583,8 @@ export function createChatSession(
 		}
 
 		if (event.type === 'tool_call') {
+			activeNarrationStep = null;
+			activeText = '';
 			const askUser = parseAskUserPrompt(event, payload);
 			if (askUser) {
 				pendingQuestion = askUser;
@@ -492,7 +621,14 @@ export function createChatSession(
 				1,
 				Math.round((Date.now() - activeAssistant.thoughtStartedAt) / 1000)
 			);
-			if (!activeText.trim()) {
+			if (activeText.trim()) {
+				if (activeNarrationStep) {
+					activeAssistant.steps = activeAssistant.steps.filter(
+						(step) => step !== activeNarrationStep
+					);
+				}
+				setAssistantText(activeAssistant, activeText);
+			} else if (!activeAssistant.blocks.length) {
 				activeAssistant.phase = 'answering';
 				setAssistantText(
 					activeAssistant,
@@ -500,6 +636,7 @@ export function createChatSession(
 				);
 			}
 			activeAssistant.phase = 'done';
+			activeNarrationStep = null;
 			if (!ownsActiveDrain) streaming = false;
 			removeLiveTurn(brainSessionId);
 			activeAssistant = null;
@@ -515,6 +652,8 @@ export function createChatSession(
 				Math.round((Date.now() - activeAssistant.thoughtStartedAt) / 1000)
 			);
 			activeAssistant.phase = 'done';
+			activeNarrationStep = null;
+			activeText = '';
 			if (!ownsActiveDrain) streaming = false;
 			removeLiveTurn(brainSessionId);
 			activeAssistant = null;
@@ -605,6 +744,11 @@ export function createChatSession(
 			: undefined;
 		activeAssistant = liveAssistant ?? null;
 		activeText = liveAssistant ? liveTurn?.activeText ?? '' : '';
+		activeNarrationStep = liveAssistant
+			? ([...liveAssistant.steps]
+					.reverse()
+					.find((step) => step.id?.startsWith('narration-')) ?? null)
+			: null;
 		ownsActiveDrain = false;
 		streaming = !!liveAssistant;
 		if (liveTurn?.title) title = liveTurn.title;
@@ -628,6 +772,7 @@ export function createChatSession(
 		const renderedAssistant = messages[messages.length - 1] as AssistantMessage;
 		activeAssistant = renderedAssistant;
 		activeText = '';
+		activeNarrationStep = null;
 		await tick();
 		pin();
 
@@ -698,6 +843,7 @@ export function createChatSession(
 		opts.onSessionChange?.(null);
 		activeAssistant = null;
 		activeText = '';
+		activeNarrationStep = null;
 		title = 'New chat';
 		void refreshSessions();
 	}
