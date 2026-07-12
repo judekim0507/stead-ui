@@ -9,6 +9,7 @@
 	import { motionEase } from '$lib/motion';
 	import { getControlConsoleBridge } from '$lib/brain/controlConsole';
 	import { createChatSession } from '$lib/chatSession.svelte';
+	import { loadPermissionMode, savePermissionMode } from '$lib/permission';
 	import Conversation from '$lib/components/Conversation.svelte';
 	import Composer from '$lib/components/Composer.svelte';
 	import PermissionBar from '$lib/components/PermissionBar.svelte';
@@ -25,29 +26,27 @@
 
 	// ── layout-local scroll handling ─────────────────────────────────────────
 	let scrollEl = $state<HTMLElement | null>(null);
-	function pinIfNear() {
-		if (!scrollEl) return;
-		const { scrollTop, clientHeight, scrollHeight } = scrollEl;
-		if (scrollHeight - (scrollTop + clientHeight) < 200)
-			scrollEl.scrollTo({ top: scrollEl.scrollHeight });
+	function pinToBottom() {
+		scrollEl?.scrollTo({ top: scrollEl.scrollHeight });
 	}
 
 	// model / permission selectors are page-local
 	let currentTab = $state<BrainTabContext | null>(null);
 	let openTabs = $state<BrainTabContext[]>([]);
-	let permission = $state<AgentPermissionMode>('full');
+	let permission = $state<AgentPermissionMode>(loadPermissionMode());
 	let provider = $state('anthropic');
 	let model = $state('claude-opus-4-6');
 	let effort = $state('High');
 	// ── the one shared chat engine ───────────────────────────────────────────
 	const chat = createChatSession({
-		pin: pinIfNear,
+		pin: pinToBottom,
 		surface: 'chat',
 		onModelSelection: (selection) => {
 			provider = selection.provider;
 			model = selection.model;
 		}
 	});
+	$effect(() => savePermissionMode(permission));
 
 		onMount(() => {
 		void (async () => {

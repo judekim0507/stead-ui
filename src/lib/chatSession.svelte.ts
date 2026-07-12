@@ -32,6 +32,48 @@ type QueuedTurn = {
 	options?: SendOptions;
 };
 
+type LiveTurnSnapshot = {
+	sessionId: string;
+	title: string;
+	messages: Message[];
+	activeText: string;
+	updatedAt: number;
+};
+
+const LIVE_TURN_KEY_PREFIX = 'stead:live-turn:v1:';
+
+function liveTurnStorageKey(sessionId: string) {
+	return `${LIVE_TURN_KEY_PREFIX}${sessionId}`;
+}
+
+function readLiveTurn(sessionId: string): LiveTurnSnapshot | null {
+	try {
+		const raw = globalThis.localStorage?.getItem(liveTurnStorageKey(sessionId));
+		if (!raw) return null;
+		const snapshot = JSON.parse(raw) as LiveTurnSnapshot;
+		if (
+			snapshot.sessionId !== sessionId ||
+			!Array.isArray(snapshot.messages) ||
+			Date.now() - snapshot.updatedAt > 24 * 60 * 60 * 1000
+		) {
+			globalThis.localStorage?.removeItem(liveTurnStorageKey(sessionId));
+			return null;
+		}
+		return snapshot;
+	} catch {
+		return null;
+	}
+}
+
+function removeLiveTurn(sessionId: string | null) {
+	if (!sessionId) return;
+	try {
+		globalThis.localStorage?.removeItem(liveTurnStorageKey(sessionId));
+	} catch {
+		// Ignore unavailable storage in non-WebUI previews.
+	}
+}
+
 type QuestionOption = { label: string; info: string };
 type QuestionPrompt = {
 	id: string;
@@ -314,6 +356,7 @@ export function createChatSession(
 	let messages = $state<Message[]>([]);
 	let queue = $state<QueuedTurn[]>([]);
 	let streaming = $state(false);
+	let ownsActiveDrain = false;
 	let stopRequested = false;
 	let title = $state('New chat');
 	let brainSessionId = $state<string | null>(null);
@@ -334,6 +377,27 @@ export function createChatSession(
 	const showPanel = $derived(hasPanelContent && !panelDismissed);
 	const sessionGroups = $derived(groupSessions(sessions));
 	const pin = () => opts.pin?.();
+
+	function persistLiveTurn() {
+		if (!brainSessionId || !activeAssistant) return;
+		try {
+			const assistantIndex = messages.indexOf(activeAssistant);
+			if (assistantIndex < 0) return;
+			const snapshot: LiveTurnSnapshot = {
+				sessionId: brainSessionId,
+				title,
+				messages: messages.slice(Math.max(0, assistantIndex - 1), assistantIndex + 1),
+				activeText,
+				updatedAt: Date.now()
+			};
+			globalThis.localStorage?.setItem(
+				liveTurnStorageKey(brainSessionId),
+				JSON.stringify(snapshot)
+			);
+		} catch {
+			// The native stream remains authoritative if storage is unavailable.
+		}
+	}
 
 	async function refreshSessions() {
 		sessionsLoading = true;
@@ -376,6 +440,7 @@ export function createChatSession(
 				Math.round((Date.now() - activeAssistant.thoughtStartedAt) / 1000)
 			);
 			setAssistantText(activeAssistant, activeText);
+			persistLiveTurn();
 			void tick().then(pin);
 			return;
 		}
@@ -385,6 +450,7 @@ export function createChatSession(
 				kind: 'thought',
 				label: eventMessage(event, payload)
 			});
+			persistLiveTurn();
 			void tick().then(pin);
 			return;
 		}
@@ -398,6 +464,7 @@ export function createChatSession(
 					kind: 'thought',
 					label: askUser.prompt
 				});
+				persistLiveTurn();
 				void tick().then(pin);
 				return;
 			}
@@ -415,6 +482,7 @@ export function createChatSession(
 				: undefined;
 			if (existing) existing.label = activity.label;
 			else activeAssistant.steps.push({ kind: 'tab', label: activity.label, id: activity.id });
+			persistLiveTurn();
 			void tick().then(pin);
 			return;
 		}
@@ -432,6 +500,8 @@ export function createChatSession(
 				);
 			}
 			activeAssistant.phase = 'done';
+			if (!ownsActiveDrain) streaming = false;
+			removeLiveTurn(brainSessionId);
 			activeAssistant = null;
 			void tick().then(pin);
 			return;
@@ -445,6 +515,8 @@ export function createChatSession(
 				Math.round((Date.now() - activeAssistant.thoughtStartedAt) / 1000)
 			);
 			activeAssistant.phase = 'done';
+			if (!ownsActiveDrain) streaming = false;
+			removeLiveTurn(brainSessionId);
 			activeAssistant = null;
 			void tick().then(pin);
 		}
@@ -512,15 +584,30 @@ export function createChatSession(
 		brainSessionId = loaded.session.id;
 		opts.onSessionChange?.(loaded.session.id);
 		title = loaded.session.title;
-		messages = restoreMessages(loaded.messages);
+		const liveTurn = readLiveTurn(sessionId);
+		messages = [
+			...restoreMessages(loaded.messages),
+			...(liveTurn?.messages ?? [])
+		];
 		queue = [];
 		artifacts = [];
 		agentTab = null;
 		panelDismissed = false;
 		questionActive = false;
 		pendingQuestion = null;
-		activeAssistant = null;
-		activeText = '';
+		const liveAssistant = liveTurn
+			? [...messages]
+					.reverse()
+					.find(
+						(message): message is AssistantMessage =>
+							message.role === 'assistant' && message.phase !== 'done'
+					)
+			: undefined;
+		activeAssistant = liveAssistant ?? null;
+		activeText = liveAssistant ? liveTurn?.activeText ?? '' : '';
+		ownsActiveDrain = false;
+		streaming = !!liveAssistant;
+		if (liveTurn?.title) title = liveTurn.title;
 		if (loaded.model) opts.onModelSelection?.(loaded.model);
 		await tick();
 		pin();
@@ -546,13 +633,14 @@ export function createChatSession(
 
 		try {
 			const sessionId = await ensureBrainSession();
+			persistLiveTurn();
 			if (!stopRequested) {
 				await brain.sendMessage({
 					sessionId,
 					text,
 					tabContext: options?.tabContext ?? contextToTabContext(context),
 					model: modelSelection(options),
-					permissionMode: options?.permission ?? 'read'
+					permissionMode: options?.permission ?? 'ask'
 				});
 			}
 		} catch (error) {
@@ -561,6 +649,7 @@ export function createChatSession(
 				renderedAssistant,
 				error instanceof Error ? error.message : String(error)
 			);
+			removeLiveTurn(brainSessionId);
 		} finally {
 			renderedAssistant.phase = 'done';
 			activeAssistant = null;
@@ -571,18 +660,23 @@ export function createChatSession(
 	}
 
 	async function drain(text: string, context: ContextRef[], options?: SendOptions) {
+		ownsActiveDrain = true;
 		streaming = true;
-		let cur: QueuedTurn | null = { text, context, options };
-		while (cur) {
-			await streamOne(cur.text, cur.context, cur.options);
-			if (queue.length) {
-				cur = queue[0];
-				queue = queue.slice(1);
-			} else {
-				cur = null;
+		try {
+			let cur: QueuedTurn | null = { text, context, options };
+			while (cur) {
+				await streamOne(cur.text, cur.context, cur.options);
+				if (queue.length) {
+					cur = queue[0];
+					queue = queue.slice(1);
+				} else {
+					cur = null;
+				}
 			}
+		} finally {
+			ownsActiveDrain = false;
+			streaming = false;
 		}
-		streaming = false;
 	}
 
 	function handleSend(text: string, context: ContextRef[], options?: SendOptions) {
@@ -592,6 +686,7 @@ export function createChatSession(
 
 	function newChat() {
 		if (streaming) return;
+		removeLiveTurn(brainSessionId);
 		messages = [];
 		queue = [];
 		artifacts = [];

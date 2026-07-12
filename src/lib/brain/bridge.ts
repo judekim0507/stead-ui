@@ -469,7 +469,7 @@ class MojoBrainConsole implements NativeBrainConsole {
 		text: string,
 		tabContext?: BrainTabContext | null,
 		model?: BrainModelSelection | null,
-		permissionMode: AgentPermissionMode = 'read'
+		permissionMode: AgentPermissionMode = 'ask'
 	) {
 		return this.call(() =>
 			this.remote.sendMessage(
@@ -584,7 +584,7 @@ class LazyNativeBrainConsole implements NativeBrainConsole {
 		text: string,
 		tabContext?: BrainTabContext | null,
 		model?: BrainModelSelection | null,
-		permissionMode: AgentPermissionMode = 'read'
+		permissionMode: AgentPermissionMode = 'ask'
 	) {
 		return (await this.getNative()).sendMessage(
 			sessionId,
@@ -809,7 +809,7 @@ class BrainBridge {
 			params.text,
 			params.tabContext ?? null,
 			params.model ?? null,
-			params.permissionMode ?? 'read'
+			params.permissionMode ?? 'ask'
 		);
 		this.assertAccepted(accepted);
 		await this.waitFor(accepted.request_id, (event) => {
@@ -996,7 +996,7 @@ class FakeBrainConsole implements NativeBrainConsole {
 		text: string,
 		_tabContext?: BrainTabContext | null,
 		_model?: BrainModelSelection | null,
-		permissionMode: AgentPermissionMode = 'read'
+		permissionMode: AgentPermissionMode = 'ask'
 	) {
 		const requestId = this.requestId();
 		queueMicrotask(async () => {

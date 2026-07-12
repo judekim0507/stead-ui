@@ -6,7 +6,7 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 
 	type Props = { permission?: string; showLabel?: boolean };
-	let { permission = $bindable('read'), showLabel = false }: Props = $props();
+	let { permission = $bindable('ask'), showLabel = false }: Props = $props();
 
 	// Single source of truth for the options — shared everywhere.
 	const options = [
@@ -15,7 +15,7 @@
 		{ value: 'full', label: 'Full access', icon: ShieldAlertIcon, color: 'text-amber-500' }
 	];
 
-	let current = $derived(options.find((o) => o.value === permission) ?? options[1]);
+	let current = $derived(options.find((o) => o.value === permission) ?? options[0]);
 	let Icon = $derived(current.icon);
 </script>
 

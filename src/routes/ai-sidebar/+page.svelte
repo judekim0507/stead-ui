@@ -9,6 +9,7 @@
 	import { motionEase } from '$lib/motion';
 	import { getControlConsoleBridge } from '$lib/brain/controlConsole';
 	import { createChatSession } from '$lib/chatSession.svelte';
+	import { loadPermissionMode, savePermissionMode } from '$lib/permission';
 	import SidebarHeader from '$lib/components/SidebarHeader.svelte';
 	import Conversation from '$lib/components/Conversation.svelte';
 	import Composer from '$lib/components/Composer.svelte';
@@ -29,19 +30,13 @@
 	function scrollToBottom(smooth = true) {
 		scrollEl?.scrollTo({ top: scrollEl.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
 	}
-	function pinIfNear() {
-		if (!scrollEl) return;
-		const { scrollTop, clientHeight, scrollHeight } = scrollEl;
-		if (scrollHeight - (scrollTop + clientHeight) < 160) scrollToBottom(false);
-	}
-
 	let currentTab = $state<BrainTabContext | null>(null);
 	let openTabs = $state<BrainTabContext[]>([]);
 	let provider = $state('anthropic');
 	let model = $state('claude-opus-4-6');
 	let effort = $state('High');
-	let permission = $state<AgentPermissionMode>('read');
-	let activeTabId: number | null = null;
+	let permission = $state<AgentPermissionMode>(loadPermissionMode());
+	let activeRestoreKey = '';
 	let restoreVersion = 0;
 	const TAB_SESSIONS_KEY = 'stead.sidebar.sessions-by-tab.v1';
 
@@ -62,7 +57,7 @@
 	}
 	// ── the one shared chat engine (same code as the full chat) ──────────────
 	const chat = createChatSession({
-		pin: pinIfNear,
+		pin: () => scrollToBottom(false),
 		surface: 'sidebar',
 			onModelSelection: (selection) => {
 				provider = selection.provider;
@@ -71,14 +66,21 @@
 			onSessionChange: rememberSession
 		});
 
+	$effect(() => savePermissionMode(permission));
+
 	async function restoreTab(tab: BrainTabContext | null) {
 		const tabId = tab?.tab_id ?? null;
-		if (tabId === activeTabId) return;
-		activeTabId = tabId;
-		const version = ++restoreVersion;
 		const sessionId =
 			tab?.owner_session_id || (tabId == null ? undefined : tabSessions()[String(tabId)]);
-		if (tab?.owner_session_id) rememberSession(tab.owner_session_id);
+		const restoreKey = `${tabId ?? 'none'}:${sessionId ?? 'none'}:${tab?.agent_owned ? 'owned' : 'normal'}`;
+		if (restoreKey === activeRestoreKey && (!sessionId || sessionId === chat.sessionId)) return;
+		activeRestoreKey = restoreKey;
+		const version = ++restoreVersion;
+		if (tab?.owner_session_id && tabId != null) {
+			const sessions = tabSessions();
+			sessions[String(tabId)] = tab.owner_session_id;
+			localStorage.setItem(TAB_SESSIONS_KEY, JSON.stringify(sessions));
+		}
 		if (sessionId && sessionId === chat.sessionId) return;
 		if (chat.streaming) {
 			// A tab switch must never cancel a turn. Agent-created tabs share the
@@ -89,11 +91,11 @@
 			}
 		}
 		if (version !== restoreVersion) return;
-		if (tabId == null) {
-			chat.newChat();
-			return;
-		}
+		if (tabId == null) return;
 		if (!sessionId) {
+			// Ownership and its session id can arrive on adjacent Mojo updates. Never
+			// replace a controlled tab's thread with a blank chat during that window.
+			if (tab?.agent_owned) return;
 			chat.newChat();
 			return;
 		}
@@ -101,6 +103,8 @@
 			await chat.loadSession(sessionId);
 		} catch {
 			if (version === restoreVersion) {
+				activeRestoreKey = '';
+				if (tab?.agent_owned) return;
 				rememberSession(null);
 				chat.newChat();
 			}
@@ -134,11 +138,17 @@
 				getControlConsoleBridge().getOpenTabContexts()
 			]).then(([tab, tabs]) => {
 					openTabs = tabs;
-					if (tab?.tab_id !== currentTab?.tab_id || tab?.url !== currentTab?.url) {
+					if (!tab) return;
+					if (
+						tab.tab_id !== currentTab?.tab_id ||
+						tab.url !== currentTab?.url ||
+						tab.agent_owned !== currentTab?.agent_owned ||
+						tab.owner_session_id !== currentTab?.owner_session_id
+					) {
 						currentTab = tab;
-						void restoreTab(tab);
 					}
-			});
+					void restoreTab(tab);
+				});
 		refresh();
 		const interval = setInterval(refresh, 500);
 		window.addEventListener('focus', refresh);

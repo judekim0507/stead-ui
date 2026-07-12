@@ -13,7 +13,7 @@
 		provider = $bindable('anthropic'),
 		model = $bindable('claude-opus-4-6'),
 		effort = $bindable('High'),
-		permission = $bindable('read')
+		permission = $bindable('ask')
 	}: Props = $props();
 </script>
 
