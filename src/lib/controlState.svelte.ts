@@ -17,13 +17,47 @@ let lastCancelled = $state<number | null>(null);
 let drivingTabs = $state<Record<number, boolean>>({});
 let started = false;
 
+function ingestAudit(entry: ControlAuditEntry) {
+	audit = [entry, ...audit.filter((candidate) => candidate.action_id !== entry.action_id)].slice(
+		0,
+		MAX_AUDIT
+	);
+	if (entry.code === 'needs_confirmation') {
+		if (!pending.some((candidate) => candidate.action_id === entry.action_id)) {
+			pending = [
+				{
+					action_id: entry.action_id,
+					tab_id: entry.tab_id,
+					action_class: entry.action_class,
+					operation: entry.operation,
+					reason: entry.message
+				},
+				...pending
+			].slice(0, MAX_PENDING);
+		}
+	} else {
+		pending = pending.filter((candidate) => candidate.action_id !== entry.action_id);
+	}
+}
+
+async function syncAuditLog() {
+	const entries = await getControlConsoleBridge().getAuditLog(MAX_AUDIT);
+	// Native returns oldest to newest. Reconcile only the latest state for each
+	// action so the fallback does not repeatedly replay superseded entries.
+	const latestByAction = new Map<number, ControlAuditEntry>();
+	for (const entry of entries) latestByAction.set(entry.action_id, entry);
+	for (const entry of latestByAction.values()) ingestAudit(entry);
+}
+
 function ensureStarted() {
 	if (started) return;
 	started = true;
 	const bridge = getControlConsoleBridge();
-	void bridge.getAuditLog(MAX_AUDIT).then((entries) => {
-		if (!audit.length) audit = entries;
-	});
+	void syncAuditLog().catch(() => {});
+	// Mojo observer delivery can be lost while a top-chrome WebUI is being
+	// rebound. Reconcile against the broker's persistent audit log so a pending
+	// confirmation can never disappear from the UI.
+	setInterval(() => void syncAuditLog().catch(() => {}), 750);
 	bridge.addObserver((event) => {
 		if (event.type === 'confirmation') {
 			pending = [
@@ -31,16 +65,7 @@ function ensureStarted() {
 				...pending.filter((candidate) => candidate.action_id !== event.request.action_id)
 			].slice(0, MAX_PENDING);
 		} else if (event.type === 'audit') {
-			audit = [
-				event.entry,
-				...audit.filter((candidate) => candidate.action_id !== event.entry.action_id)
-			].slice(0, MAX_AUDIT);
-			// The broker records the initial needs_confirmation result immediately
-			// after announcing it. Keep the prompt until an approved/denied audit
-			// arrives; otherwise the UI removes it before the next paint.
-			if (event.entry.code !== 'needs_confirmation') {
-				pending = pending.filter((candidate) => candidate.action_id !== event.entry.action_id);
-			}
+			ingestAudit(event.entry);
 		} else if (event.type === 'cancelled') {
 			lastCancelled = event.tab_id;
 			if (drivingTabs[event.tab_id]) drivingTabs = { ...drivingTabs, [event.tab_id]: false };
