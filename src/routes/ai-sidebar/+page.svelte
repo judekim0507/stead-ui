@@ -120,6 +120,13 @@
 		chromeApi?.send?.('closeSteadSidebar');
 	}
 
+	function openFullChat() {
+		const params = new URLSearchParams();
+		if (chat.sessionId) params.set('session', chat.sessionId);
+		const query = params.toString();
+		window.open(`chrome://chat/ai-chat${query ? `?${query}` : ''}`, '_blank', 'noopener');
+	}
+
 	function continueAfterApproval(operation: string) {
 		chat.handleSend(`Approved ${operation}. Retry the action now.`, [], {
 			provider,
@@ -185,6 +192,7 @@
 			loading={chat.sessionsLoading}
 			{currentTab}
 			onClose={closeSidebar}
+			onOpenFull={openFullChat}
 			onNew={chat.newChat}
 			onSelect={chat.loadSession}
 		/>

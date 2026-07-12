@@ -23,6 +23,7 @@
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
 	import PanelRightIcon from '@lucide/svelte/icons/panel-right';
 	import PanelRightCloseIcon from '@lucide/svelte/icons/panel-right-close';
+	import Minimize2Icon from '@lucide/svelte/icons/minimize-2';
 
 	// ── layout-local scroll handling ─────────────────────────────────────────
 	let scrollEl = $state<HTMLElement | null>(null);
@@ -86,6 +87,10 @@
 			tabContext: currentTab
 		});
 	}
+
+	function returnToSidebar() {
+		window.close();
+	}
 </script>
 
 <svelte:head>
@@ -95,6 +100,15 @@
 <div class="bg-background text-foreground flex h-dvh w-full flex-col overflow-hidden antialiased">
 	<!-- Top bar -->
 	<header class="flex h-12 shrink-0 items-center gap-2 px-3">
+		<button
+			type="button"
+			onclick={returnToSidebar}
+			aria-label="Return to sidebar"
+			title="Return to sidebar"
+			class="text-muted-foreground hover:text-foreground hover:bg-muted/50 grid size-8 place-items-center rounded-lg transition-colors"
+		>
+			<Minimize2Icon class="size-[18px]" />
+		</button>
 		<button
 			type="button"
 			onclick={chat.newChat}

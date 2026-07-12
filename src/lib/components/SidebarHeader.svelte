@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import type { BrainTabContext } from '$lib/brain/bridge';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import Maximize2Icon from '@lucide/svelte/icons/maximize-2';
 	import XIcon from '@lucide/svelte/icons/x';
 	import SessionSelector from './SessionSelector.svelte';
 
@@ -12,6 +13,7 @@
 		loading?: boolean;
 		currentTab?: BrainTabContext | null;
 		onClose?: () => void;
+		onOpenFull?: () => void;
 		onNew?: () => void;
 		onSelect?: (id: string) => void;
 	};
@@ -23,6 +25,7 @@
 		loading = false,
 		currentTab = null,
 		onClose,
+		onOpenFull,
 		onNew,
 		onSelect
 	}: Props = $props();
@@ -51,6 +54,16 @@
 
 	<!-- Right: session selector -->
 	<div class="flex shrink-0 items-center gap-1">
+		<Button
+			variant="ghost"
+			size="icon"
+			class="text-muted-foreground hover:text-foreground size-8 shrink-0"
+			aria-label="Open full-screen chat"
+			title="Open full-screen chat"
+			onclick={onOpenFull}
+		>
+			<Maximize2Icon class="size-[17px]" />
+		</Button>
 		<Button
 			variant="ghost"
 			size="icon"

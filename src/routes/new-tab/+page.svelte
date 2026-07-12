@@ -18,7 +18,9 @@
 		if (typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)) {
 			return '/ai-chat';
 		}
-		return 'stead://chat/ai-chat';
+		// Chromium registers the internal page under chrome://. The omnibox
+		// presentation layer displays it as stead:// after navigation.
+		return 'chrome://chat/ai-chat';
 	}
 
 	function chatUrl(params: Record<string, string> = {}) {
