@@ -131,9 +131,13 @@
 		{#if msg.role === 'user'}
 			<div class="flex flex-col items-end gap-1.5">
 				{#if msg.context?.length}
-					<div class="flex w-fit max-w-[68%] flex-wrap justify-end gap-1.5 overflow-hidden">
+					<div class="flex w-full min-w-0 flex-row flex-nowrap justify-start gap-1.5 overflow-hidden self-start">
 						{#each msg.context as c (c.title)}
-							<div class="surface-raised flex min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-xl py-1 pr-2.5 pl-1">
+							<div
+								class="surface-raised flex min-w-0 {msg.context.length > 1
+									? 'flex-1'
+									: 'w-fit max-w-[68%]'} items-center gap-2 overflow-hidden rounded-xl py-1 pr-2.5 pl-1"
+							>
 								<div class="relative grid size-7 shrink-0 place-items-center rounded-md bg-white/[0.07]">
 									<GlobeIcon class="text-muted-foreground size-4" />
 									{#if c.favicon}

@@ -100,7 +100,7 @@ export type NativeBrainConsole = {
 	sendMessage(
 		sessionId: string,
 		text: string,
-		tabContext?: BrainTabContext | null,
+		tabContexts?: BrainTabContext[],
 		model?: BrainModelSelection | null,
 		permissionMode?: AgentPermissionMode
 	): Promise<BrainRequestResult>;
@@ -158,7 +158,7 @@ type MojoRemote = {
 	sendMessage(
 		sessionId: string,
 		text: string,
-		tabContext: { tabId: number; url: string; title: string } | null,
+		tabContexts: Array<{ tabId: number; url: string; title: string }>,
 		model: BrainModelSelection | null,
 		permissionMode: MojoBrainPermissionMode
 	): Promise<{ result: MojoBrainResult }>;
@@ -341,13 +341,12 @@ function normalizeEvent(event: MojoBrainEvent): BrainConsoleEvent {
 	};
 }
 
-function toMojoTabContext(tabContext?: BrainTabContext | null) {
-	if (!tabContext) return null;
-	return {
+function toMojoTabContexts(tabContexts: BrainTabContext[] = []) {
+	return tabContexts.map((tabContext) => ({
 		tabId: tabContext.tab_id,
 		url: tabContext.url,
 		title: tabContext.title
-	};
+	}));
 }
 
 function normalizeTabContext(value: unknown): BrainTabContext | null {
@@ -467,7 +466,7 @@ class MojoBrainConsole implements NativeBrainConsole {
 	sendMessage(
 		sessionId: string,
 		text: string,
-		tabContext?: BrainTabContext | null,
+		tabContexts: BrainTabContext[] = [],
 		model?: BrainModelSelection | null,
 		permissionMode: AgentPermissionMode = 'ask'
 	) {
@@ -475,7 +474,7 @@ class MojoBrainConsole implements NativeBrainConsole {
 			this.remote.sendMessage(
 				sessionId,
 				text,
-				toMojoTabContext(tabContext),
+				toMojoTabContexts(tabContexts),
 				model ?? null,
 				toMojoPermissionMode(permissionMode, this.permissionModes)
 			)
@@ -582,14 +581,14 @@ class LazyNativeBrainConsole implements NativeBrainConsole {
 	async sendMessage(
 		sessionId: string,
 		text: string,
-		tabContext?: BrainTabContext | null,
+		tabContexts: BrainTabContext[] = [],
 		model?: BrainModelSelection | null,
 		permissionMode: AgentPermissionMode = 'ask'
 	) {
 		return (await this.getNative()).sendMessage(
 			sessionId,
 			text,
-			tabContext,
+			tabContexts,
 			model,
 			permissionMode
 		);
@@ -800,14 +799,14 @@ class BrainBridge {
 	async sendMessage(params: {
 		sessionId: string;
 		text: string;
-		tabContext?: BrainTabContext | null;
+		tabContexts?: BrainTabContext[];
 		model?: BrainModelSelection | null;
 		permissionMode?: AgentPermissionMode;
 	}) {
 		const accepted = await this.native.sendMessage(
 			params.sessionId,
 			params.text,
-			params.tabContext ?? null,
+			params.tabContexts ?? [],
 			params.model ?? null,
 			params.permissionMode ?? 'ask'
 		);
@@ -994,7 +993,7 @@ class FakeBrainConsole implements NativeBrainConsole {
 	async sendMessage(
 		sessionId: string,
 		text: string,
-		_tabContext?: BrainTabContext | null,
+		_tabContexts: BrainTabContext[] = [],
 		_model?: BrainModelSelection | null,
 		permissionMode: AgentPermissionMode = 'ask'
 	) {

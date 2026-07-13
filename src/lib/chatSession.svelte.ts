@@ -102,14 +102,23 @@ function modelSelection(options?: SendOptions): BrainModelSelection | null {
 	return { provider: options.provider, model: options.model };
 }
 
-function contextToTabContext(context: ContextRef[]): BrainTabContext | null {
-	const item = context.find((candidate) => typeof candidate.tab_id === 'number');
-	if (!item || typeof item.tab_id !== 'number') return null;
-	return {
-		tab_id: item.tab_id,
-		url: item.url ?? item.sublabel ?? '',
-		title: item.title
-	};
+function contextToTabContexts(
+	context: ContextRef[],
+	fallback?: BrainTabContext | null
+): BrainTabContext[] {
+	const tabs = context
+		.filter(
+			(item): item is ContextRef & { tab_id: number } => typeof item.tab_id === 'number'
+		)
+		.map((item) => ({
+			tab_id: item.tab_id,
+			url: item.url ?? item.sublabel ?? '',
+			title: item.title
+		}));
+	if (fallback && !tabs.some((tab) => tab.tab_id === fallback.tab_id)) {
+		tabs.unshift(fallback);
+	}
+	return tabs;
 }
 
 function sameDay(a: Date, b: Date) {
@@ -245,22 +254,21 @@ function setAssistantText(message: AssistantMessage, text: string) {
 }
 
 function restoredContext(message: BrainSessionMessage): ContextRef[] {
-	const raw = message.metadata.tab_context;
-	if (!raw || typeof raw !== 'object') return [];
-	const tab = raw as Record<string, unknown>;
-	const tabId = typeof tab.tab_id === 'number' ? tab.tab_id : undefined;
-	const url = typeof tab.url === 'string' ? tab.url : '';
-	const title = typeof tab.title === 'string' && tab.title ? tab.title : url;
-	if (tabId === undefined || !title) return [];
-	return [
-		{
-			title,
-			sublabel: url,
-			favicon: faviconUrlForPage(url),
-			tab_id: tabId,
-			url
-		}
-	];
+	const multiple = message.metadata.tab_contexts;
+	const rawTabs = Array.isArray(multiple)
+		? multiple
+		: message.metadata.tab_context && typeof message.metadata.tab_context === 'object'
+			? [message.metadata.tab_context]
+			: [];
+	return rawTabs.flatMap((raw) => {
+		if (!raw || typeof raw !== 'object') return [];
+		const tab = raw as Record<string, unknown>;
+		const tabId = typeof tab.tab_id === 'number' ? tab.tab_id : undefined;
+		const url = typeof tab.url === 'string' ? tab.url : '';
+		const title = typeof tab.title === 'string' && tab.title ? tab.title : url;
+		if (tabId === undefined || !title) return [];
+		return [{ title, sublabel: url, favicon: faviconUrlForPage(url), tab_id: tabId, url }];
+	});
 }
 
 function restoreMessages(stored: BrainSessionMessage[]): Message[] {
@@ -783,7 +791,7 @@ export function createChatSession(
 				await brain.sendMessage({
 					sessionId,
 					text,
-					tabContext: options?.tabContext ?? contextToTabContext(context),
+					tabContexts: contextToTabContexts(context, options?.tabContext),
 					model: modelSelection(options),
 					permissionMode: options?.permission ?? 'ask'
 				});

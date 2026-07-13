@@ -428,13 +428,15 @@
 	<!-- Context row: cards stay inside the sidebar and clip long page metadata. -->
 	{#if contextItems.length}
 		<div transition:slide={{ duration: 240, easing: motionEase }} class="min-w-0 overflow-hidden">
-			<div class="mb-2 flex min-w-0 flex-col items-end gap-1.5 overflow-hidden">
+			<div class="mb-2 flex min-w-0 flex-row flex-nowrap items-center justify-start gap-1.5 overflow-hidden">
 				{#each contextItems as item (item.id)}
 				<div
 					in:scale={{ duration: 220, start: 0.9, opacity: 0, easing: motionEase }}
 					out:scale={{ duration: 220, start: 0.9, opacity: 0, easing: motionEase }}
 					animate:flip={{ duration: 300, easing: motionEase }}
-					class="group surface-raised flex w-full min-w-0 max-w-[68%] items-center gap-2.5 overflow-hidden rounded-2xl py-1.5 pr-2 pl-1.5"
+					class="group surface-raised flex min-w-0 max-w-[68%] {contextItems.length > 1
+						? 'flex-1'
+						: 'w-fit'} items-center gap-2.5 overflow-hidden rounded-2xl py-1.5 pr-2 pl-1.5"
 				>
 					<div class="relative grid size-9 shrink-0 place-items-center rounded-lg bg-white/[0.07]">
 						{#if item.kind === 'file'}
