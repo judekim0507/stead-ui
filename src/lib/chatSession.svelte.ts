@@ -339,7 +339,13 @@ function codeStep(payload: unknown): Step | null {
 	const name = typeof record.name === 'string' ? record.name : '';
 	const message = typeof record.message === 'string' ? record.message : '';
 	const detail = typeof record.detail === 'string' ? record.detail : undefined;
-	const isBrowserExec = name === 'browser_exec' || message === 'browser_exec' || record.kind === 'code';
+	// The brain attaches `detail` only for browser_exec (script while running,
+	// output preview on completion); a titled step has the title in `message`.
+	const isBrowserExec =
+		name === 'browser_exec' ||
+		message === 'browser_exec' ||
+		record.kind === 'code' ||
+		detail !== undefined;
 	if (!id || id.includes(':op:') || id.includes(':steadwright:') || !isBrowserExec) return null;
 	const status = typeof record.status === 'string' ? record.status : '';
 	const running = status === 'running';
