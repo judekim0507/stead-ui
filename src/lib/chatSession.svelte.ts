@@ -1139,7 +1139,13 @@ export function createChatSession(
 			const existing = activity.id
 				? activeAssistant.steps.find((step) => step.id === activity.id)
 				: undefined;
-			if (existing) existing.label = activity.label;
+			if (existing?.kind === 'code') {
+				// A code card owns its title; later plain status events for the
+				// same execution only move its status.
+				if (activity.status === 'completed' || activity.status === 'failed') {
+					existing.status = activity.status;
+				}
+			} else if (existing) existing.label = activity.label;
 			else activeAssistant.steps = addActivityStep(activeAssistant.steps, activity);
 			persistLiveTurn();
 			void tick().then(pin);
