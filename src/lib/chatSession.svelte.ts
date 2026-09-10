@@ -328,6 +328,33 @@ const TOOL_ACTIVITY: Record<string, { running: string; done: string; failed?: st
 	}
 };
 
+/**
+ * browser_exec reports itself as a parent tool_status (no `:op:` in the id):
+ * `running` carries the script in `detail`, `completed`/`failed` carry a
+ * trimmed output preview, and `message` is the model's step title.
+ */
+function codeStep(payload: unknown): Step | null {
+	const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+	const id = typeof record.tool_call_id === 'string' ? record.tool_call_id : '';
+	const name = typeof record.name === 'string' ? record.name : '';
+	const message = typeof record.message === 'string' ? record.message : '';
+	const detail = typeof record.detail === 'string' ? record.detail : undefined;
+	const isBrowserExec = name === 'browser_exec' || message === 'browser_exec' || record.kind === 'code';
+	if (!id || id.includes(':op:') || id.includes(':steadwright:') || !isBrowserExec) return null;
+	const status = typeof record.status === 'string' ? record.status : '';
+	const running = status === 'running';
+	const title = message && message !== 'browser_exec' ? message : '';
+	const firstLine = (detail ?? '').split('\n').find((line) => line.trim())?.trim() ?? '';
+	return {
+		kind: 'code',
+		id,
+		label: title || (running && firstLine ? firstLine.slice(0, 90) : 'Ran browser code'),
+		status: status === 'completed' || status === 'failed' ? status : 'running',
+		code: running ? detail : undefined,
+		output: running ? undefined : detail
+	};
+}
+
 function toolActivity(payload: unknown) {
 	const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
 	const id = typeof record.tool_call_id === 'string' ? record.tool_call_id : undefined;
@@ -671,6 +698,16 @@ function restoreMessages(stored: BrainSessionMessage[]): Message[] {
 					? message.metadata.tool_call_id
 					: undefined;
 			const failed = message.metadata.is_error === true;
+			{
+				// A browser_exec result completes the code card opened by its call.
+				const target = currentAssistant();
+				const card = target.steps.find((step) => step.kind === 'code' && step.id === toolId);
+				if (card) {
+					card.status = failed ? 'failed' : 'completed';
+					card.output = message.content.slice(0, 1200);
+					continue;
+				}
+			}
 			const activity = toolActivity({
 				name: toolName,
 				tool_call_id: toolId,
@@ -693,6 +730,19 @@ function restoreMessages(stored: BrainSessionMessage[]): Message[] {
 		const calls = storedToolCalls(message);
 		if (calls.length) {
 			for (const call of calls) {
+				if (normalizedToolName(call.name) === 'browser_exec') {
+					const code = typeof call.arguments.code === 'string' ? call.arguments.code : '';
+					const title = typeof call.arguments.title === 'string' ? call.arguments.title : '';
+					const firstLine = code.split('\n').find((line) => line.trim())?.trim() ?? '';
+					currentAssistant().steps.push({
+						kind: 'code',
+						id: call.id,
+						label: title || firstLine.slice(0, 90) || 'Ran browser code',
+						code,
+						status: 'completed'
+					});
+					continue;
+				}
 				const activity = toolActivity({
 					name: call.name,
 					tool_call_id: call.id,
@@ -1046,6 +1096,25 @@ export function createChatSession(
 				return;
 			}
 			trackToolSideContent(payload);
+		}
+
+		if (event.type === 'tool_status') {
+			const code = codeStep(payload);
+			if (code) {
+				activeAssistant.steps = activeAssistant.steps.filter((step) => step.label !== 'Thinking');
+				const existing = activeAssistant.steps.find((step) => step.id === code.id);
+				if (existing) {
+					existing.label = code.label;
+					existing.status = code.status;
+					if (code.code) existing.code = code.code;
+					if (code.output !== undefined) existing.output = code.output;
+				} else {
+					activeAssistant.steps.push(code);
+				}
+				persistLiveTurn();
+				void tick().then(pin);
+				return;
+			}
 		}
 
 		if (event.type === 'tool_call' || event.type === 'tool_status') {

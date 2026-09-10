@@ -5,6 +5,7 @@
 	import type { Message, AssistantMessage, Step, Token } from '$lib/chat';
 	import GlobeIcon from '@lucide/svelte/icons/globe';
 	import CpuIcon from '@lucide/svelte/icons/cpu';
+	import CodeIcon from '@lucide/svelte/icons/code';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
@@ -23,6 +24,19 @@
 	}
 
 	// step reveal: collapse-down height + fade
+	// Code steps stay open while running (so the user watches the script and
+	// its output arrive) and collapse to their title once the turn moves on,
+	// unless the user opens them.
+	let openCode = $state<Record<string, boolean>>({});
+	function codeOpen(step: Step) {
+		const key = step.id ?? step.label;
+		return key in openCode ? openCode[key] : step.status === 'running' || step.status === 'failed';
+	}
+	function toggleCode(step: Step) {
+		const key = step.id ?? step.label;
+		openCode = { ...openCode, [key]: !codeOpen(step) };
+	}
+
 	function stepIn(node: HTMLElement, { duration = 260 } = {}) {
 		const h = node.offsetHeight;
 		return {
@@ -42,6 +56,8 @@
 					<div class="flex h-[1.45rem] items-center">
 						{#if step.kind === 'thought'}
 							<span class="bg-muted-foreground/60 size-1.5 rounded-full"></span>
+						{:else if step.kind === 'code'}
+							<CodeIcon class="text-muted-foreground/70 size-4" />
 						{:else if step.kind === 'tab'}
 							<GlobeIcon class="text-muted-foreground/70 size-4" />
 						{:else}
@@ -58,7 +74,38 @@
 						? 'pb-3'
 						: ''} {live && si === steps.length - 1 ? 'shimmer-text' : 'text-muted-foreground'}"
 				>
-					{step.label}
+					{#if step.kind === 'code'}
+						<button
+							type="button"
+							class="flex w-full items-center gap-1.5 text-left"
+							onclick={() => toggleCode(step)}
+						>
+							<span class="min-w-0 flex-1 truncate">{step.label}</span>
+							{#if step.status === 'failed'}
+								<span class="text-amber-400/90 shrink-0 text-xs">failed</span>
+							{/if}
+							<ChevronRightIcon
+								class="size-3.5 shrink-0 opacity-60 transition-transform {codeOpen(step) ? 'rotate-90' : ''}"
+							/>
+						</button>
+						{#if codeOpen(step) && (step.code || step.output)}
+							<div
+								transition:slide={{ duration: 200, easing: motionEase }}
+								class="surface-raised mt-2 max-w-full overflow-hidden rounded-xl text-[12.5px] leading-snug"
+							>
+								{#if step.code}
+									<pre
+										class="text-foreground/90 max-h-56 overflow-auto px-3 py-2.5 font-mono whitespace-pre-wrap break-words"><span class="text-muted-foreground select-none">&gt; </span>{step.code}</pre>
+								{/if}
+								{#if step.output}
+									<pre
+										class="text-muted-foreground border-border/60 max-h-40 overflow-auto border-t px-3 py-2 font-mono whitespace-pre-wrap break-words">{step.output}</pre>
+								{/if}
+							</div>
+						{/if}
+					{:else}
+						{step.label}
+					{/if}
 				</div>
 			</div>
 		{/each}
