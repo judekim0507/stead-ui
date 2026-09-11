@@ -10,7 +10,7 @@
 	import FileTextIcon2 from '@lucide/svelte/icons/file-text';
 	import FilePenIcon from '@lucide/svelte/icons/file-pen';
 	import FileSearchIcon from '@lucide/svelte/icons/file-search';
-	import SparklesIcon from '@lucide/svelte/icons/sparkles';
+	import SparklesIcon from '@lucide/svelte/icons/sparkle';
 	import BrainIcon from '@lucide/svelte/icons/brain';
 	import { highlight, languageForOutput, languageForTool } from '$lib/highlight';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';

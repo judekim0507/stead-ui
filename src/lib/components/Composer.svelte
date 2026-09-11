@@ -14,7 +14,7 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import XIcon from '@lucide/svelte/icons/x';
 	import AppWindowIcon from '@lucide/svelte/icons/app-window';
-	import SparklesIcon from '@lucide/svelte/icons/sparkles';
+	import SparklesIcon from '@lucide/svelte/icons/sparkle';
 	import FileIcon from '@lucide/svelte/icons/file';
 
 	type Kind = 'tab' | 'skill';
