@@ -21,8 +21,20 @@ export type Token = {
 	href?: string;
 };
 
-export type StepKind = 'thought' | 'tab' | 'memory';
-export type Step = { kind: StepKind; label: string; id?: string };
+export type StepKind = 'thought' | 'tab' | 'memory' | 'code';
+export type StepStatus = 'running' | 'completed' | 'failed';
+/** A `code` step is one browser_exec execution: the model's title, the
+ * Playwright script it ran, and a trimmed preview of what came back. */
+export type Step = {
+	kind: StepKind;
+	label: string;
+	id?: string;
+	/** Tool that produced a `code` step (bash, browser_exec, read, …). */
+	tool?: string;
+	code?: string;
+	output?: string;
+	status?: StepStatus;
+};
 export type ContextRef = {
 	title: string;
 	sublabel?: string;

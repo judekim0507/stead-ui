@@ -24,6 +24,29 @@
 	}: Props = $props();
 
 	let open = $state(false);
+	// Long histories overflow the viewport; show a handful and let the user
+	// expand. Reset when the menu closes so it reopens compact.
+	const INITIAL_VISIBLE = 6;
+	let expanded = $state(false);
+	$effect(() => {
+		if (!open) expanded = false;
+	});
+	const totalSessions = $derived(groups.reduce((n, g) => n + g.sessions.length, 0));
+	const visibleGroups = $derived.by(() => {
+		if (expanded || totalSessions <= INITIAL_VISIBLE) return groups;
+		let budget = INITIAL_VISIBLE;
+		const out: Group[] = [];
+		for (const group of groups) {
+			if (budget <= 0) break;
+			const sessions = group.sessions.slice(0, budget);
+			budget -= sessions.length;
+			out.push({ label: group.label, sessions });
+		}
+		return out;
+	});
+	const hiddenCount = $derived(
+		totalSessions - visibleGroups.reduce((n, g) => n + g.sessions.length, 0)
+	);
 </script>
 
 <DropdownMenu.Root bind:open>
@@ -48,7 +71,7 @@
 	<DropdownMenu.Content
 		align="start"
 		sideOffset={8}
-		class="w-72 max-w-[calc(100vw-1.5rem)]"
+		class="max-h-[min(70vh,32rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto"
 	>
 		<DropdownMenu.Item onSelect={() => onNew?.()} class="gap-2 font-medium">
 			<PlusIcon class="size-4" />
@@ -60,7 +83,7 @@
 		{#if loading}
 			<DropdownMenu.Item class="text-muted-foreground">Loading sessions</DropdownMenu.Item>
 		{:else if groups.length}
-			{#each groups as group (group.label)}
+			{#each visibleGroups as group (group.label)}
 				<DropdownMenu.Group>
 					<DropdownMenu.GroupHeading
 						class="text-muted-foreground px-2 pt-1.5 pb-1 text-xs font-medium"
@@ -77,6 +100,19 @@
 					{/each}
 				</DropdownMenu.Group>
 			{/each}
+			{#if hiddenCount > 0}
+				<DropdownMenu.Item
+					closeOnSelect={false}
+					onSelect={(e) => {
+						e.preventDefault();
+						expanded = true;
+					}}
+					class="text-muted-foreground gap-2"
+				>
+					<ChevronDownIcon class="size-3.5" />
+					Show {hiddenCount} more
+				</DropdownMenu.Item>
+			{/if}
 		{:else}
 			<DropdownMenu.Item class="text-muted-foreground">No sessions</DropdownMenu.Item>
 		{/if}

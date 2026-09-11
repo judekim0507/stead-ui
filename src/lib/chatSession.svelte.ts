@@ -328,6 +328,98 @@ const TOOL_ACTIVITY: Record<string, { running: string; done: string; failed?: st
 	}
 };
 
+/**
+ * browser_exec reports itself as a parent tool_status (no `:op:` in the id):
+ * `running` carries the script in `detail`, `completed`/`failed` carry a
+ * trimmed output preview, and `message` is the model's step title.
+ */
+function codeStep(payload: unknown): Step | null {
+	const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+	const id = typeof record.tool_call_id === 'string' ? record.tool_call_id : '';
+	const name =
+		typeof record.name === 'string'
+			? record.name
+			: typeof record.message === 'string' && record.message === 'browser_exec'
+				? 'browser_exec'
+				: '';
+	const message = typeof record.message === 'string' ? record.message : '';
+	const detail = typeof record.detail === 'string' ? record.detail : undefined;
+	// Every tool call renders as a card. Nested per-operation rows (`:op:`) and
+	// legacy `:steadwright:` traces stay plain steps; ask_user has its own UI.
+	if (!id || id.includes(':op:') || id.includes(':steadwright:')) return null;
+	if (!name || name === 'ask_user') return null;
+	const status = typeof record.status === 'string' ? record.status : '';
+	const running = status === 'running';
+	const title = message && message !== name ? message : '';
+	const firstLine = (detail ?? '').split('\n').find((line) => line.trim())?.trim() ?? '';
+	return {
+		kind: 'code',
+		id,
+		tool: name,
+		label:
+			title || (running && firstLine ? `${toolVerb(name)} ${firstLine.slice(0, 90)}` : toolVerb(name)),
+		status: status === 'completed' || status === 'failed' ? status : 'running',
+		code: running ? detail : undefined,
+		output: running ? undefined : detail
+	};
+}
+
+/** Mirrors the brain's tool_step_detail for restored history. */
+function storedToolDetail(tool: string, args: Record<string, unknown>): string | undefined {
+	const str = (key: string) => (typeof args[key] === 'string' ? (args[key] as string) : '');
+	switch (tool) {
+		case 'browser_exec':
+			return str('code') || undefined;
+		case 'bash':
+			return str('command') || undefined;
+		case 'read':
+		case 'ls':
+		case 'find':
+			return str('path') || str('pattern') || undefined;
+		case 'grep':
+			return `${str('pattern')}${str('path') ? `  in ${str('path')}` : ''}` || undefined;
+		case 'write':
+			return `// ${str('path')}\n${str('content')}`;
+		case 'edit':
+			return `// ${str('path')}\n- ${str('old_string')}\n+ ${str('new_string')}`;
+		case 'WebFetch':
+			return str('url') || undefined;
+		case 'Skill':
+			return str('name') || undefined;
+		default:
+			return undefined;
+	}
+}
+
+function toolVerb(tool: string) {
+	switch (tool) {
+		case 'browser_exec':
+			return 'Browser';
+		case 'bash':
+			return 'Shell';
+		case 'read':
+			return 'Read';
+		case 'write':
+			return 'Wrote';
+		case 'edit':
+			return 'Edited';
+		case 'grep':
+			return 'Searched';
+		case 'find':
+			return 'Found files';
+		case 'ls':
+			return 'Listed';
+		case 'WebFetch':
+			return 'Fetched';
+		case 'Skill':
+			return 'Loaded skill';
+		case 'memory':
+			return 'Memory';
+		default:
+			return tool.replaceAll('_', ' ');
+	}
+}
+
 function toolActivity(payload: unknown) {
 	const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
 	const id = typeof record.tool_call_id === 'string' ? record.tool_call_id : undefined;
@@ -671,6 +763,16 @@ function restoreMessages(stored: BrainSessionMessage[]): Message[] {
 					? message.metadata.tool_call_id
 					: undefined;
 			const failed = message.metadata.is_error === true;
+			{
+				// A browser_exec result completes the code card opened by its call.
+				const target = currentAssistant();
+				const card = target.steps.find((step) => step.kind === 'code' && step.id === toolId);
+				if (card) {
+					card.status = failed ? 'failed' : 'completed';
+					card.output = message.content.slice(0, 1200);
+					continue;
+				}
+			}
 			const activity = toolActivity({
 				name: toolName,
 				tool_call_id: toolId,
@@ -693,6 +795,18 @@ function restoreMessages(stored: BrainSessionMessage[]): Message[] {
 		const calls = storedToolCalls(message);
 		if (calls.length) {
 			for (const call of calls) {
+				const card = codeStep({
+					tool_call_id: call.id ?? `stored-${index}-${call.name}`,
+					name: call.name,
+					message: typeof call.arguments.title === 'string' ? call.arguments.title : call.name,
+					detail: storedToolDetail(call.name, call.arguments),
+					status: 'running'
+				});
+				if (card) {
+					card.status = 'completed';
+					currentAssistant().steps.push(card);
+					continue;
+				}
 				const activity = toolActivity({
 					name: call.name,
 					tool_call_id: call.id,
@@ -1048,6 +1162,26 @@ export function createChatSession(
 			trackToolSideContent(payload);
 		}
 
+		if (event.type === 'tool_status') {
+			const code = codeStep(payload);
+			if (code) {
+				activeAssistant.steps = activeAssistant.steps.filter((step) => step.label !== 'Thinking');
+				const existing = activeAssistant.steps.find((step) => step.id === code.id);
+				if (existing) {
+					existing.label = code.label;
+					existing.status = code.status;
+					existing.tool = code.tool ?? existing.tool;
+					if (code.code) existing.code = code.code;
+					if (code.output !== undefined) existing.output = code.output;
+				} else {
+					activeAssistant.steps.push(code);
+				}
+				persistLiveTurn();
+				void tick().then(pin);
+				return;
+			}
+		}
+
 		if (event.type === 'tool_call' || event.type === 'tool_status') {
 			const activity = toolActivity(payload);
 			if (!activity) return;
@@ -1064,7 +1198,13 @@ export function createChatSession(
 			const existing = activity.id
 				? activeAssistant.steps.find((step) => step.id === activity.id)
 				: undefined;
-			if (existing) existing.label = activity.label;
+			if (existing?.kind === 'code') {
+				// A code card owns its title; later plain status events for the
+				// same execution only move its status.
+				if (activity.status === 'completed' || activity.status === 'failed') {
+					existing.status = activity.status;
+				}
+			} else if (existing) existing.label = activity.label;
 			else activeAssistant.steps = addActivityStep(activeAssistant.steps, activity);
 			persistLiveTurn();
 			void tick().then(pin);
