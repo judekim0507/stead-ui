@@ -364,6 +364,33 @@ function codeStep(payload: unknown): Step | null {
 	};
 }
 
+/** Mirrors the brain's tool_step_detail for restored history. */
+function storedToolDetail(tool: string, args: Record<string, unknown>): string | undefined {
+	const str = (key: string) => (typeof args[key] === 'string' ? (args[key] as string) : '');
+	switch (tool) {
+		case 'browser_exec':
+			return str('code') || undefined;
+		case 'bash':
+			return str('command') || undefined;
+		case 'read':
+		case 'ls':
+		case 'find':
+			return str('path') || str('pattern') || undefined;
+		case 'grep':
+			return `${str('pattern')}${str('path') ? `  in ${str('path')}` : ''}` || undefined;
+		case 'write':
+			return `// ${str('path')}\n${str('content')}`;
+		case 'edit':
+			return `// ${str('path')}\n- ${str('old_string')}\n+ ${str('new_string')}`;
+		case 'WebFetch':
+			return str('url') || undefined;
+		case 'Skill':
+			return str('name') || undefined;
+		default:
+			return undefined;
+	}
+}
+
 function toolVerb(tool: string) {
 	switch (tool) {
 		case 'browser_exec':
@@ -768,17 +795,16 @@ function restoreMessages(stored: BrainSessionMessage[]): Message[] {
 		const calls = storedToolCalls(message);
 		if (calls.length) {
 			for (const call of calls) {
-				if (normalizedToolName(call.name) === 'browser_exec') {
-					const code = typeof call.arguments.code === 'string' ? call.arguments.code : '';
-					const title = typeof call.arguments.title === 'string' ? call.arguments.title : '';
-					const firstLine = code.split('\n').find((line) => line.trim())?.trim() ?? '';
-					currentAssistant().steps.push({
-						kind: 'code',
-						id: call.id,
-						label: title || firstLine.slice(0, 90) || 'Ran browser code',
-						code,
-						status: 'completed'
-					});
+				const card = codeStep({
+					tool_call_id: call.id ?? `stored-${index}-${call.name}`,
+					name: call.name,
+					message: typeof call.arguments.title === 'string' ? call.arguments.title : call.name,
+					detail: storedToolDetail(call.name, call.arguments),
+					status: 'running'
+				});
+				if (card) {
+					card.status = 'completed';
+					currentAssistant().steps.push(card);
 					continue;
 				}
 				const activity = toolActivity({
