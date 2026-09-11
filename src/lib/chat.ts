@@ -29,6 +29,8 @@ export type Step = {
 	kind: StepKind;
 	label: string;
 	id?: string;
+	/** Tool that produced a `code` step (bash, browser_exec, read, …). */
+	tool?: string;
 	code?: string;
 	output?: string;
 	status?: StepStatus;

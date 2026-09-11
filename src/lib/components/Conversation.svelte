@@ -6,6 +6,13 @@
 	import GlobeIcon from '@lucide/svelte/icons/globe';
 	import CpuIcon from '@lucide/svelte/icons/cpu';
 	import CodeIcon from '@lucide/svelte/icons/code';
+	import TerminalIcon from '@lucide/svelte/icons/square-terminal';
+	import FileTextIcon2 from '@lucide/svelte/icons/file-text';
+	import FilePenIcon from '@lucide/svelte/icons/file-pen';
+	import FileSearchIcon from '@lucide/svelte/icons/file-search';
+	import SparklesIcon from '@lucide/svelte/icons/sparkles';
+	import BrainIcon from '@lucide/svelte/icons/brain';
+	import { highlight, languageForOutput, languageForTool } from '$lib/highlight';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
@@ -57,7 +64,23 @@
 						{#if step.kind === 'thought'}
 							<span class="bg-muted-foreground/60 size-1.5 rounded-full"></span>
 						{:else if step.kind === 'code'}
-							<CodeIcon class="text-muted-foreground/70 size-4" />
+							{#if step.tool === 'bash'}
+								<TerminalIcon class="text-muted-foreground/70 size-4" />
+							{:else if step.tool === 'browser_exec'}
+								<GlobeIcon class="text-muted-foreground/70 size-4" />
+							{:else if step.tool === 'write' || step.tool === 'edit'}
+								<FilePenIcon class="text-muted-foreground/70 size-4" />
+							{:else if step.tool === 'grep' || step.tool === 'find' || step.tool === 'ls'}
+								<FileSearchIcon class="text-muted-foreground/70 size-4" />
+							{:else if step.tool === 'read' || step.tool === 'WebFetch'}
+								<FileTextIcon2 class="text-muted-foreground/70 size-4" />
+							{:else if step.tool === 'Skill'}
+								<SparklesIcon class="text-muted-foreground/70 size-4" />
+							{:else if step.tool === 'memory'}
+								<BrainIcon class="text-muted-foreground/70 size-4" />
+							{:else}
+								<CodeIcon class="text-muted-foreground/70 size-4" />
+							{/if}
 						{:else if step.kind === 'tab'}
 							<GlobeIcon class="text-muted-foreground/70 size-4" />
 						{:else}
@@ -95,11 +118,11 @@
 							>
 								{#if step.code}
 									<pre
-										class="text-foreground/90 max-h-56 overflow-auto px-3 py-2.5 font-mono whitespace-pre-wrap break-words"><span class="text-muted-foreground select-none">&gt; </span>{step.code}</pre>
+										class="hljs text-foreground/90 max-h-64 overflow-auto px-3 py-2.5 font-mono whitespace-pre-wrap break-words"><code>{@html highlight(step.code, languageForTool(step.tool, step.code))}</code></pre>
 								{/if}
 								{#if step.output}
 									<pre
-										class="text-muted-foreground border-border/60 max-h-40 overflow-auto border-t px-3 py-2 font-mono whitespace-pre-wrap break-words">{step.output}</pre>
+										class="hljs text-muted-foreground border-border/60 max-h-48 overflow-auto border-t px-3 py-2 font-mono whitespace-pre-wrap break-words"><code>{@html highlight(step.output, languageForOutput(step.tool, step.output))}</code></pre>
 								{/if}
 							</div>
 						{/if}
@@ -280,3 +303,44 @@
 		{/if}
 	{/each}
 </div>
+
+
+<style>
+	/* Minimal highlight.js palette tuned for the dark surface. */
+	:global(.hljs-keyword),
+	:global(.hljs-selector-tag),
+	:global(.hljs-built_in),
+	:global(.hljs-literal) {
+		color: #c792ea;
+	}
+	:global(.hljs-string),
+	:global(.hljs-attr),
+	:global(.hljs-addition) {
+		color: #a5d6a7;
+	}
+	:global(.hljs-number),
+	:global(.hljs-symbol),
+	:global(.hljs-bullet) {
+		color: #f8c471;
+	}
+	:global(.hljs-title),
+	:global(.hljs-title.function_),
+	:global(.hljs-section) {
+		color: #82b1ff;
+	}
+	:global(.hljs-comment),
+	:global(.hljs-quote),
+	:global(.hljs-meta) {
+		color: #7f8a99;
+		font-style: italic;
+	}
+	:global(.hljs-variable),
+	:global(.hljs-template-variable),
+	:global(.hljs-deletion) {
+		color: #ef9a9a;
+	}
+	:global(.hljs-property),
+	:global(.hljs-attribute) {
+		color: #80cbc4;
+	}
+</style>

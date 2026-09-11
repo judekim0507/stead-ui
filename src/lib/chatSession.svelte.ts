@@ -336,29 +336,61 @@ const TOOL_ACTIVITY: Record<string, { running: string; done: string; failed?: st
 function codeStep(payload: unknown): Step | null {
 	const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
 	const id = typeof record.tool_call_id === 'string' ? record.tool_call_id : '';
-	const name = typeof record.name === 'string' ? record.name : '';
+	const name =
+		typeof record.name === 'string'
+			? record.name
+			: typeof record.message === 'string' && record.message === 'browser_exec'
+				? 'browser_exec'
+				: '';
 	const message = typeof record.message === 'string' ? record.message : '';
 	const detail = typeof record.detail === 'string' ? record.detail : undefined;
-	// The brain attaches `detail` only for browser_exec (script while running,
-	// output preview on completion); a titled step has the title in `message`.
-	const isBrowserExec =
-		name === 'browser_exec' ||
-		message === 'browser_exec' ||
-		record.kind === 'code' ||
-		detail !== undefined;
-	if (!id || id.includes(':op:') || id.includes(':steadwright:') || !isBrowserExec) return null;
+	// Every tool call renders as a card. Nested per-operation rows (`:op:`) and
+	// legacy `:steadwright:` traces stay plain steps; ask_user has its own UI.
+	if (!id || id.includes(':op:') || id.includes(':steadwright:')) return null;
+	if (!name || name === 'ask_user') return null;
 	const status = typeof record.status === 'string' ? record.status : '';
 	const running = status === 'running';
-	const title = message && message !== 'browser_exec' ? message : '';
+	const title = message && message !== name ? message : '';
 	const firstLine = (detail ?? '').split('\n').find((line) => line.trim())?.trim() ?? '';
 	return {
 		kind: 'code',
 		id,
-		label: title || (running && firstLine ? firstLine.slice(0, 90) : 'Ran browser code'),
+		tool: name,
+		label:
+			title || (running && firstLine ? `${toolVerb(name)} ${firstLine.slice(0, 90)}` : toolVerb(name)),
 		status: status === 'completed' || status === 'failed' ? status : 'running',
 		code: running ? detail : undefined,
 		output: running ? undefined : detail
 	};
+}
+
+function toolVerb(tool: string) {
+	switch (tool) {
+		case 'browser_exec':
+			return 'Browser';
+		case 'bash':
+			return 'Shell';
+		case 'read':
+			return 'Read';
+		case 'write':
+			return 'Wrote';
+		case 'edit':
+			return 'Edited';
+		case 'grep':
+			return 'Searched';
+		case 'find':
+			return 'Found files';
+		case 'ls':
+			return 'Listed';
+		case 'WebFetch':
+			return 'Fetched';
+		case 'Skill':
+			return 'Loaded skill';
+		case 'memory':
+			return 'Memory';
+		default:
+			return tool.replaceAll('_', ' ');
+	}
 }
 
 function toolActivity(payload: unknown) {
@@ -1112,6 +1144,7 @@ export function createChatSession(
 				if (existing) {
 					existing.label = code.label;
 					existing.status = code.status;
+					existing.tool = code.tool ?? existing.tool;
 					if (code.code) existing.code = code.code;
 					if (code.output !== undefined) existing.output = code.output;
 				} else {
